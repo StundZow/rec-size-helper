@@ -15,7 +15,6 @@ from . import update_config
 from .__version__ import VERSION
 
 _CREATE_NO_WINDOW = 0x08000000
-_DETACHED_PROCESS = 0x00000008
 _CREATE_NEW_PROCESS_GROUP = 0x00000200
 
 
@@ -127,19 +126,33 @@ def launch_self_update(new_exe_path: Path) -> None:
     current_exe = Path(sys.executable)
     bat_path = Path(tempfile.gettempdir()) / "rec_size_helper_update.bat"
     bat_content = f"""@echo off
-:wait
+:waitproc
 tasklist /FI "IMAGENAME eq {current_exe.name}" 2>NUL | find /I "{current_exe.name}" >NUL
 if "%ERRORLEVEL%"=="0" (
     timeout /t 1 /nobreak > nul
-    goto wait
+    goto waitproc
 )
-move /Y "{new_exe_path}" "{current_exe}" > nul
+
+set RETRY=0
+:trymove
+move /Y "{new_exe_path}" "{current_exe}" > nul 2>&1
+if exist "{new_exe_path}" (
+    set /a RETRY+=1
+    if %RETRY% LSS 20 (
+        timeout /t 1 /nobreak > nul
+        goto trymove
+    )
+)
+
 start "" "{current_exe}"
 del "%~f0"
 """
     bat_path.write_text(bat_content, encoding="utf-8")
+    # CREATE_NO_WINDOW still allocates a (hidden) console, which the batch
+    # file's tasklist/find/timeout commands need to function — a fully
+    # DETACHED_PROCESS has no console at all and makes them fail silently.
     subprocess.Popen(
         ["cmd", "/c", str(bat_path)],
-        creationflags=_DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW,
+        creationflags=_CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW,
         close_fds=True,
     )
