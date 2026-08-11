@@ -6,7 +6,7 @@ from typing import Optional
 
 from PySide6.QtCore import QEasingCurve, QPointF, QRectF, Qt, QVariantAnimation
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QToolTip, QWidget
+from PySide6.QtWidgets import QWidget
 
 from .models import Recording
 from .theme import DARK, qcolor
@@ -20,10 +20,6 @@ MONTHS_FR = [
     "janv.", "févr.", "mars", "avr.", "mai", "juin",
     "juil.", "août", "sept.", "oct.", "nov.", "déc.",
 ]
-
-
-def _fmt_gb(num_bytes: float) -> str:
-    return f"{num_bytes / (1024 ** 3):.1f} Go".replace(".", ",")
 
 
 def _fmt_axis_value(value_gb: float) -> str:
@@ -84,7 +80,6 @@ class TimelineWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumHeight(300)
-        self.setMouseTracking(True)
         self.recordings: list[Recording] = []
         self.mp4_cutoff: Optional[datetime] = None
         self.mkv_cutoff: Optional[datetime] = None
@@ -94,7 +89,6 @@ class TimelineWidget(QWidget):
         self._mp4_vals: list[float] = []
         self._left_date: Optional[datetime] = None
         self._right_date: Optional[datetime] = None
-        self._col_rects: list[tuple[QRectF, datetime, float, float]] = []
         self._axis_max_gb = 1.0
         self._palette = DARK
 
@@ -266,7 +260,6 @@ class TimelineWidget(QWidget):
                              Qt.AlignVCenter | Qt.AlignLeft, label)
 
         # ---- week columns: dashed vertical gridlines + bottom labels ----
-        self._col_rects = []
         n_weeks = len(self._weeks)
         label_stride = 1 if n_weeks <= 26 else 2 if n_weeks <= 52 else 4
         week_span = timedelta(weeks=1).total_seconds()
@@ -274,10 +267,6 @@ class TimelineWidget(QWidget):
         for idx, w in enumerate(self._weeks):
             x_center = self._ts_to_x(w.timestamp() + week_span / 2, chart_rect.left(), chart_rect.width())
             xs.append(x_center)
-            x0 = self._ts_to_x(w.timestamp(), chart_rect.left(), chart_rect.width())
-            x1 = self._ts_to_x(w.timestamp() + week_span, chart_rect.left(), chart_rect.width())
-            self._col_rects.append((QRectF(x0, chart_rect.top(), x1 - x0, chart_rect.height()),
-                                    w, self._mkv_vals[idx], self._mp4_vals[idx]))
 
             if idx % label_stride != 0:
                 continue
@@ -334,6 +323,14 @@ class TimelineWidget(QWidget):
             ]
             if len(pts) == 1:
                 pts = [QPointF(chart_rect.left(), pts[0].y()), QPointF(chart_rect.right(), pts[0].y())]
+            else:
+                # points sit at each week's *center*, which leaves a gap
+                # between the chart edge and the first/last week — extend
+                # flat to both edges so the curve fills the whole axis.
+                if pts[0].x() > chart_rect.left():
+                    pts = [QPointF(chart_rect.left(), pts[0].y())] + pts
+                if pts[-1].x() < chart_rect.right():
+                    pts = pts + [QPointF(chart_rect.right(), pts[-1].y())]
             curve = _smooth_path(pts, chart_rect.bottom())
 
             fill = QPainterPath(curve)
@@ -392,25 +389,3 @@ class TimelineWidget(QWidget):
         draw_highlight(self._mp4_x_ts, MP4_STROKE, self._mp4_vals)
 
         painter.end()
-
-    def mouseMoveEvent(self, event):
-        pos = event.position()
-        for col_rect, week_start, mkv_bytes, mp4_bytes in self._col_rects:
-            wide = QRectF(col_rect.x(), 0, col_rect.width(), self.height())
-            if wide.contains(pos):
-                week_end = week_start + timedelta(days=6)
-                label = (
-                    f"Semaine du {week_start.day} {MONTHS_FR[week_start.month - 1]} "
-                    f"au {week_end.day} {MONTHS_FR[week_end.month - 1]} {week_end.year}"
-                )
-                text = (
-                    f"{label}\nMKV : {_fmt_gb(mkv_bytes)}\nMP4 : {_fmt_gb(mp4_bytes)}\n"
-                    f"Total : {_fmt_gb(mkv_bytes + mp4_bytes)}"
-                )
-                QToolTip.showText(event.globalPosition().toPoint(), text, self)
-                return
-        QToolTip.hideText()
-
-    def leaveEvent(self, event):
-        QToolTip.hideText()
-        super().leaveEvent(event)

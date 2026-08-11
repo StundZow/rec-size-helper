@@ -10,21 +10,35 @@ SETTINGS_FILE = CONFIG_DIR / "settings.json"
 
 # theme: None means "follow Windows", otherwise "dark"/"light" (last explicit choice)
 DEFAULT_SETTINGS = {"theme": None, "auto_lock_mkv": True}
+DEFAULT_PIN_ICON = "📁"
 
 
-def load_pinned_folders() -> list[str]:
+def load_pinned_folders() -> list[dict]:
     if not PINNED_FILE.exists():
         return []
     try:
         data = json.loads(PINNED_FILE.read_text(encoding="utf-8"))
-        if isinstance(data, list):
-            return [str(p) for p in data]
+        if not isinstance(data, list):
+            return []
+        result = []
+        for item in data:
+            # older versions stored plain path strings — migrate on read
+            if isinstance(item, str):
+                result.append({"path": item, "name": Path(item).name or item, "icon": DEFAULT_PIN_ICON})
+            elif isinstance(item, dict) and item.get("path"):
+                path = str(item["path"])
+                result.append({
+                    "path": path,
+                    "name": str(item.get("name") or Path(path).name or path),
+                    "icon": str(item.get("icon") or DEFAULT_PIN_ICON),
+                })
+        return result
     except Exception:
         pass
     return []
 
 
-def save_pinned_folders(folders: list[str]) -> None:
+def save_pinned_folders(folders: list[dict]) -> None:
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         PINNED_FILE.write_text(json.dumps(folders), encoding="utf-8")

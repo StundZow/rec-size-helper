@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QFrame,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -24,7 +25,9 @@ from PySide6.QtWidgets import (
 )
 
 from . import settings, theme
+from .confirm_overlay import ConfirmOverlay
 from .glass_background import GlassBackground
+from .overlay_base import ModalOverlay
 from .models import Recording
 from .resources import ICON_PATH
 from .storage_bar import StorageBar
@@ -55,45 +58,48 @@ def _legend_dot(color: str, text: str) -> QLabel:
 
 
 class PinnedSegment(QWidget):
-    """One segment of the folder pill: ◀ name ▶ ✕ — arrows/✕ stay invisible
-    until hovered so the pill reads as a clean segmented control."""
+    """One segment of the folder pill: name ⚙ ✕ — gear/✕ stay invisible
+    until hovered so the pill reads as a clean segmented control. Reordering
+    lives in the gear's edit popup, not as arrows on the pill itself."""
 
     clicked = Signal(str)
     unpinned = Signal(str)
     move_left = Signal(str)
     move_right = Signal(str)
+    meta_changed = Signal(str, str, str, str)  # old_path, name, icon, new_path
 
-    def __init__(self, path: str, is_active: bool, is_first: bool, is_last: bool):
+    def __init__(self, pin: dict, is_active: bool, is_first: bool, is_last: bool):
         super().__init__()
-        self.path = path
+        self.pin = pin
+        self.path = pin["path"]
+        self._is_first = is_first
+        self._is_last = is_last
+        # the active highlight is painted on the whole segment (not just the
+        # name) so the gear/✕ sit inside the highlighted capsule instead of
+        # trailing outside it in plain pill background
+        self.setObjectName("pinSegment")
+        self.setProperty("active", "true" if is_active else "false")
+        self.setAttribute(Qt.WA_StyledBackground, True)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(0)
 
-        self._left = QPushButton("◀")
-        self._left.setObjectName("segMini")
-        self._left.setFixedSize(16, 22)
-        self._left.setCursor(Qt.PointingHandCursor)
-        self._left.setEnabled(not is_first)
-        self._left.clicked.connect(lambda: self.move_left.emit(self.path))
-        layout.addWidget(self._left)
-
-        name = Path(path).name or path
-        self.name_button = QPushButton(name)
+        name = pin.get("name") or Path(self.path).name or self.path
+        icon = pin.get("icon") or "📁"
+        self.name_button = QPushButton(f"{icon}  {name}")
         self.name_button.setObjectName("segmentItem")
-        self.name_button.setProperty("active", "true" if is_active else "false")
-        self.name_button.setToolTip(path)
+        self.name_button.setToolTip(self.path)
         self.name_button.setCursor(Qt.PointingHandCursor)
         self.name_button.clicked.connect(lambda: self.clicked.emit(self.path))
         layout.addWidget(self.name_button)
 
-        self._right = QPushButton("▶")
-        self._right.setObjectName("segMini")
-        self._right.setFixedSize(16, 22)
-        self._right.setCursor(Qt.PointingHandCursor)
-        self._right.setEnabled(not is_last)
-        self._right.clicked.connect(lambda: self.move_right.emit(self.path))
-        layout.addWidget(self._right)
+        self._gear = QPushButton("⚙")
+        self._gear.setObjectName("segMini")
+        self._gear.setFixedSize(16, 22)
+        self._gear.setCursor(Qt.PointingHandCursor)
+        self._gear.setToolTip("Modifier ce raccourci")
+        self._gear.clicked.connect(self._open_edit_popup)
+        layout.addWidget(self._gear)
 
         self._remove = QPushButton("✕")
         self._remove.setObjectName("segMini")
@@ -103,13 +109,37 @@ class PinnedSegment(QWidget):
         self._remove.clicked.connect(lambda: self.unpinned.emit(self.path))
         layout.addWidget(self._remove)
 
-        self._set_minis_visible(False)
+        # An opacity effect (not a "color: transparent" stylesheet) hides
+        # these — colour emoji glyphs like the gear ignore text-colour QSS,
+        # since they're drawn as pre-rendered bitmaps, not text.
+        self._minis = (self._gear, self._remove)
+        self._mini_effects = []
+        for b in self._minis:
+            effect = QGraphicsOpacityEffect(b)
+            effect.setOpacity(0.0)
+            b.setGraphicsEffect(effect)
+            self._mini_effects.append(effect)
+
+    def _open_edit_popup(self):
+        from .pin_edit_popup import PinEditOverlay
+
+        popup = PinEditOverlay(
+            self.window(),
+            name=self.pin.get("name") or Path(self.path).name or self.path,
+            path=self.path,
+            icon=self.pin.get("icon") or "📁",
+            is_first=self._is_first,
+            is_last=self._is_last,
+        )
+        popup.saved.connect(lambda name, icon, new_path: self.meta_changed.emit(self.path, name, icon, new_path))
+        popup.move_left_requested.connect(lambda: self.move_left.emit(self.path))
+        popup.move_right_requested.connect(lambda: self.move_right.emit(self.path))
+        popup.open_over()
 
     def _set_minis_visible(self, visible: bool):
-        # Keep the buttons in the layout (stable width) but hide their glyphs;
-        # clearing the inline style lets the themed QSS rule apply again.
-        for b in (self._left, self._right, self._remove):
-            b.setStyleSheet("" if visible else "color: transparent;")
+        # Keep the buttons in the layout (stable width) but fade their opacity;
+        for effect in self._mini_effects:
+            effect.setOpacity(1.0 if visible else 0.0)
 
     def enterEvent(self, event):
         self._set_minis_visible(True)
@@ -137,7 +167,7 @@ class MainWindow(QMainWindow):
         self._other_bytes = 0
         self._syncing_sliders = False
         self._locked_gap = 0
-        self.pinned_folders: list[str] = settings.load_pinned_folders()
+        self.pinned_folders: list[dict] = settings.load_pinned_folders()
         self.app_settings = settings.load_settings()
         self.theme_name = self.app_settings.get("theme") or theme.detect_windows_theme()
         self.palette = theme.get_palette(self.theme_name)
@@ -227,7 +257,11 @@ class MainWindow(QMainWindow):
         self.segment_pill = QFrame()
         self.segment_pill.setObjectName("segmentPill")
         self.pinned_layout = QHBoxLayout(self.segment_pill)
-        self.pinned_layout.setContentsMargins(5, 3, 5, 3)
+        # right margin is wide on purpose: the pill's border-radius (19px)
+        # eats into the last few pixels near the edge, so a small icon
+        # button parked right at a 5px margin renders outside the rounded
+        # silhouette — this keeps the last mini-button clear of that curve
+        self.pinned_layout.setContentsMargins(8, 3, 18, 3)
         self.pinned_layout.setSpacing(2)
 
         pill_row.addWidget(self.segment_pill)
@@ -281,9 +315,9 @@ class MainWindow(QMainWindow):
 
         storage_legend = QHBoxLayout()
         storage_legend.setSpacing(18)
+        storage_legend.addWidget(_legend_dot(OTHER_COLOR, "Autres fichiers"))
         storage_legend.addWidget(_legend_dot(MKV_COLOR, "MKV"))
         storage_legend.addWidget(_legend_dot(MP4_COLOR, "MP4"))
-        storage_legend.addWidget(_legend_dot(OTHER_COLOR, "Autres fichiers"))
         storage_legend.addWidget(_legend_dot(FREE_COLOR, "Libre"))
         storage_legend.addStretch()
         storage_layout.addLayout(storage_legend)
@@ -361,6 +395,10 @@ class MainWindow(QMainWindow):
             item = self.pinned_layout.takeAt(0)
             w = item.widget()
             if w:
+                # taking it out of the layout doesn't hide it — without this,
+                # the old widget can still paint (overlapping the new one)
+                # until deleteLater's deferred deletion actually runs
+                w.hide()
                 w.deleteLater()
 
         self.browse_button = QPushButton("📁  Parcourir…")
@@ -372,10 +410,10 @@ class MainWindow(QMainWindow):
 
         current = str(self.folder) if self.folder else None
         last_idx = len(self.pinned_folders) - 1
-        for idx, path in enumerate(self.pinned_folders):
+        for idx, pin in enumerate(self.pinned_folders):
             seg = PinnedSegment(
-                path,
-                is_active=(path == current),
+                pin,
+                is_active=(pin["path"] == current),
                 is_first=(idx == 0),
                 is_last=(idx == last_idx),
             )
@@ -383,12 +421,18 @@ class MainWindow(QMainWindow):
             seg.unpinned.connect(self.unpin_folder)
             seg.move_left.connect(lambda p: self.move_pin(p, -1))
             seg.move_right.connect(lambda p: self.move_pin(p, 1))
+            seg.meta_changed.connect(self.update_pin_meta)
             self.pinned_layout.addWidget(seg)
 
+    def _pin_index(self, path: str) -> int | None:
+        for i, pin in enumerate(self.pinned_folders):
+            if pin["path"] == path:
+                return i
+        return None
+
     def move_pin(self, path: str, direction: int):
-        try:
-            idx = self.pinned_folders.index(path)
-        except ValueError:
+        idx = self._pin_index(path)
+        if idx is None:
             return
         new_idx = idx + direction
         if 0 <= new_idx < len(self.pinned_folders):
@@ -399,27 +443,43 @@ class MainWindow(QMainWindow):
             settings.save_pinned_folders(self.pinned_folders)
             self.refresh_pinned_row()
 
+    def update_pin_meta(self, old_path: str, name: str, icon: str, new_path: str):
+        idx = self._pin_index(old_path)
+        if idx is None:
+            return
+        self.pinned_folders[idx]["name"] = name
+        self.pinned_folders[idx]["icon"] = icon
+        self.pinned_folders[idx]["path"] = new_path
+        settings.save_pinned_folders(self.pinned_folders)
+        self.refresh_pinned_row()
+
     def toggle_pin(self):
         if not self.folder:
             return
         path = str(self.folder)
-        if path in self.pinned_folders:
-            self.pinned_folders.remove(path)
+        idx = self._pin_index(path)
+        if idx is not None:
+            self.pinned_folders.pop(idx)
         else:
-            self.pinned_folders.append(path)
+            self.pinned_folders.append({
+                "path": path,
+                "name": self.folder.name or path,
+                "icon": settings.DEFAULT_PIN_ICON,
+            })
         settings.save_pinned_folders(self.pinned_folders)
         self.refresh_pinned_row()
         self.update_pin_button_state()
 
     def unpin_folder(self, path: str):
-        if path in self.pinned_folders:
-            self.pinned_folders.remove(path)
+        idx = self._pin_index(path)
+        if idx is not None:
+            self.pinned_folders.pop(idx)
             settings.save_pinned_folders(self.pinned_folders)
             self.refresh_pinned_row()
             self.update_pin_button_state()
 
     def update_pin_button_state(self):
-        is_pinned = bool(self.folder) and str(self.folder) in self.pinned_folders
+        is_pinned = bool(self.folder) and self._pin_index(str(self.folder)) is not None
         self.pin_button.setChecked(is_pinned)
         self.pin_button.setText("📌  Épinglé" if is_pinned else "📌  Épingler")
         self.pin_button.setEnabled(bool(self.folder))
@@ -518,9 +578,9 @@ class MainWindow(QMainWindow):
 
         self.storage_bar.set_data(
             [
+                (self._other_bytes, QColor(OTHER_COLOR)),
                 (mkv_remaining, QColor(MKV_COLOR)),
                 (mp4_remaining, QColor(MP4_COLOR)),
-                (self._other_bytes, QColor(OTHER_COLOR)),
                 (free_projected, QColor(FREE_COLOR)),
             ],
             self._disk_total_bytes,
@@ -631,10 +691,15 @@ class MainWindow(QMainWindow):
 
     # --------------------------------------------------------------- theme --
     def open_settings(self):
-        from .settings_dialog import SettingsDialog
+        from .settings_overlay import SettingsOverlay
 
-        dialog = SettingsDialog(self)
-        dialog.exec()
+        SettingsOverlay(self).open_over()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        for overlay in self.findChildren(ModalOverlay):
+            if overlay.isVisible():
+                overlay.setGeometry(self.rect())
 
     def apply_theme(self, name: str):
         self.theme_name = name
@@ -657,18 +722,20 @@ class MainWindow(QMainWindow):
 
         total_freed = sum(f.size for f in mp4_files) + sum(f.size for f in mkv_files)
         msg = (
-            f"{len(mp4_files)} fichier(s) MP4 et {len(mkv_files)} fichier(s) MKV "
-            f"({format_size(total_freed)}) vont être supprimés DÉFINITIVEMENT de votre disque.\n\n"
-            "⚠️ Ils ne passeront PAS par la Corbeille — cette action est irréversible.\n\n"
-            "Continuer ?"
+            f"Supprimer <b>{len(mkv_files)} MKV</b> et <b>{len(mp4_files)} MP4</b> "
+            f"pour <b>{format_size(total_freed)}</b> ?"
         )
-        reply = QMessageBox.warning(
-            self, "Confirmer la suppression définitive", msg,
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        overlay = ConfirmOverlay(
+            self,
+            title="Confirmer la suppression définitive",
+            message=msg,
+            on_confirm=lambda: self._perform_delete(mp4_files, mkv_files, total_freed),
+            confirm_text="🗑️  Supprimer définitivement",
+            icon="🗑️",
         )
-        if reply != QMessageBox.Yes:
-            return
+        overlay.open_over()
 
+    def _perform_delete(self, mp4_files: list, mkv_files: list, total_freed: int):
         failed: list[tuple[Path, str]] = []
         deleted_paths: set[Path] = set()
         for f in mp4_files + mkv_files:

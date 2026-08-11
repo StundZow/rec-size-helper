@@ -42,6 +42,12 @@ QFrame#card {{
     border: 1px solid {p['card_border']};
 }}
 
+QFrame#modalCard {{
+    background-color: {p['modal_card_bg']};
+    border-radius: 22px;
+    border: 1px solid {p['card_border']};
+}}
+
 QScrollArea#pinnedScroll {{
     background: transparent;
     border: none;
@@ -64,8 +70,11 @@ QPushButton#segmentItem {{
 QPushButton#segmentItem:hover {{
     color: {p['text']};
 }}
-QPushButton#segmentItem[active="true"] {{
+QWidget#pinSegment[active="true"] {{
     background-color: {p['segment_active_bg']};
+    border-radius: 15px;
+}}
+QWidget#pinSegment[active="true"] QPushButton#segmentItem {{
     color: {p['segment_active_text']};
     font-weight: 700;
 }}
@@ -78,6 +87,7 @@ QPushButton#segMini {{
 }}
 QPushButton#segMini:hover:!disabled {{
     color: {p['text']};
+    background-color: {p['input_bg']};
 }}
 QPushButton#segMini:disabled {{
     color: transparent;
@@ -99,9 +109,10 @@ QPushButton#segmentIconItem {{
 QPushButton#segmentIconItem:hover {{
     color: {p['text']};
 }}
-QPushButton#segmentIconItem[active="true"] {{
+QFrame#segmentIconThumb {{
     background-color: {p['pin_toggle_checked_bg']};
     border: 1px solid {p['pin_toggle_checked_border']};
+    border-radius: 13px;
 }}
 
 QPushButton#pinToggle {{
@@ -150,6 +161,24 @@ QPushButton#lockToggle:checked {{
     background-color: {p['pin_toggle_checked_bg']};
     border-color: {p['pin_toggle_checked_border']};
     color: {p['pin_toggle_checked_text']};
+}}
+
+QPushButton#pinConfirmButton {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #22c55e, stop:1 #16a34a);
+    color: #ffffff;
+    border: none;
+    border-radius: 15px;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 6px 16px;
+}}
+QPushButton#pinConfirmButton:hover {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #34d874, stop:1 #1eb355);
+}}
+
+QLineEdit#pinIconEdit {{
+    padding: 6px 4px;
+    font-size: 17px;
 }}
 
 QPushButton#pathButton {{

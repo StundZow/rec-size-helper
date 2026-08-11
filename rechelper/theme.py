@@ -38,6 +38,11 @@ DARK = {
     "pin_toggle_checked_text": "#e4d9ff",
     "scrollbar_bg": "rgba(255,255,255,0.04)",
     "scrollbar_handle": "rgba(255,255,255,0.16)",
+    # modal overlay cards (Settings/Confirm/Pin-edit) need to read as a
+    # clearly distinct window over the dimmed+blurred backdrop, so they get
+    # a near-solid, deliberately *lighter* fill instead of the translucent
+    # glass look regular in-page cards use
+    "modal_card_bg": "#3c3260",
 }
 
 LIGHT = {
@@ -73,6 +78,7 @@ LIGHT = {
     "pin_toggle_checked_text": "#5b21b6",
     "scrollbar_bg": "rgba(255,255,255,0.2)",
     "scrollbar_handle": "rgba(120,100,160,0.30)",
+    "modal_card_bg": "#ffffff",
 }
 
 
