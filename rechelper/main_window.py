@@ -329,13 +329,14 @@ class MainWindow(QMainWindow):
         self.mkv_slider.valueChanged.connect(self.on_mkv_slider_changed)
         mkv_slider_row.addWidget(self.mkv_slider, stretch=1)
 
-        self.lock_button = QPushButton("🔓")
+        self.lock_button = QPushButton("🔒")
         self.lock_button.setObjectName("lockToggle")
         self.lock_button.setCheckable(True)
         self.lock_button.setFixedSize(30, 30)
         self.lock_button.setCursor(Qt.PointingHandCursor)
         self.lock_button.setToolTip("Verrouiller l'écart entre les deux curseurs")
         self.lock_button.toggled.connect(self.toggle_lock)
+        self.lock_button.setChecked(True)
         mkv_slider_row.addWidget(self.lock_button)
         sl_layout.addLayout(mkv_slider_row)
 
