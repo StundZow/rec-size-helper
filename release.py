@@ -19,6 +19,27 @@ VERSION_FILE = ROOT / "rechelper" / "__version__.py"
 
 GH_FALLBACKS = [r"C:\Program Files\GitHub CLI\gh.exe"]
 
+# Only QtCore/QtGui/QtWidgets are used — everything else is dead weight that
+# --collect-all used to drag in (~250 MB per exe). Explicit excludes keep any
+# accidental transitive import from pulling the heavy Qt stacks back in.
+EXCLUDED_MODULES = [
+    "tkinter", "numpy", "PIL",
+    "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtQuick3D",
+    "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets",
+    "PySide6.QtNetwork", "PySide6.QtMultimedia", "PySide6.QtCharts",
+    "PySide6.QtSql", "PySide6.QtTest", "PySide6.QtPdf", "PySide6.QtPdfWidgets",
+    "PySide6.Qt3DCore", "PySide6.Qt3DRender", "PySide6.QtBluetooth",
+    "PySide6.QtSensors", "PySide6.QtWebChannel", "PySide6.QtWebSockets",
+    "PySide6.QtDesigner", "PySide6.QtOpenGL", "PySide6.QtOpenGLWidgets",
+]
+
+
+def exclude_args() -> list[str]:
+    args: list[str] = []
+    for module in EXCLUDED_MODULES:
+        args += ["--exclude-module", module]
+    return args
+
 
 def find_gh() -> str:
     found = shutil.which("gh")
@@ -43,7 +64,7 @@ def build_all() -> tuple[Path, Path]:
         "pyinstaller", "--noconfirm", "--windowed", "--onefile", "--name", "RecSizeHelper",
         "--icon", str(ROOT / "rechelper" / "assets" / "icon.ico"),
         "--add-data", f"{ROOT / 'rechelper' / 'assets'};rechelper/assets",
-        "--collect-all", "PySide6", str(ROOT / "main.py"),
+        *exclude_args(), str(ROOT / "main.py"),
     ])
     app_exe = ROOT / "dist" / "RecSizeHelper.exe"
     if not app_exe.exists():
@@ -55,7 +76,7 @@ def build_all() -> tuple[Path, Path]:
         "pyinstaller", "--noconfirm", "--windowed", "--onefile", "--name", "uninstall",
         "--icon", str(ROOT / "rechelper" / "assets" / "icon.ico"),
         "--add-data", f"{ROOT / 'rechelper' / 'assets'};rechelper/assets",
-        "--collect-all", "PySide6",
+        *exclude_args(),
         "--distpath", str(ROOT / "dist_uninstall"),
         str(ROOT / "installer" / "uninstall_app.py"),
     ])
@@ -71,7 +92,7 @@ def build_all() -> tuple[Path, Path]:
         "--add-data", f"{ROOT / 'rechelper' / 'assets'};rechelper/assets",
         "--add-data", f"{app_exe};payload",
         "--add-data", f"{uninstall_exe};payload",
-        "--collect-all", "PySide6",
+        *exclude_args(),
         "--distpath", str(ROOT / "dist_installer"),
         str(ROOT / "installer" / "installer_app.py"),
     ])
