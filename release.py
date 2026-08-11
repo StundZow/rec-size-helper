@@ -58,8 +58,15 @@ def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
 
 
 def build_all() -> tuple[Path, Path]:
-    """Builds app + uninstaller + installer. Returns (app_exe, installer_exe)."""
-    # 1. the application itself (also the auto-update payload)
+    """Builds the app + the installer bootstrapper. Returns (app_exe, installer_exe).
+
+    The uninstaller lives inside the app exe itself (`RecSizeHelper.exe
+    --uninstall`), and the installer downloads the app from GitHub at install
+    time instead of embedding it — so nothing needs to be built or embedded
+    as payload here; each exe is a plain, independent onefile build.
+    """
+    # 1. the application itself (also what the installer downloads and what
+    #    the auto-updater fetches for later updates)
     run([
         "pyinstaller", "--noconfirm", "--windowed", "--onefile", "--name", "RecSizeHelper",
         "--icon", str(ROOT / "rechelper" / "assets" / "icon.ico"),
@@ -71,31 +78,20 @@ def build_all() -> tuple[Path, Path]:
         print("Build failed: app exe not found.")
         sys.exit(1)
 
-    # 2. the uninstaller (small, lives inside the install folder)
-    # --paths is essential: these scripts live in installer/, so without it
+    # the exe is published under a clearer name for humans; the auto-updater
+    # looks for this exact asset name (update_config.ASSET_NAME), and the
+    # installer fetches the same name from the latest GitHub release.
+    portable_exe = ROOT / "dist" / "RecSizeHelper-portable.exe"
+    shutil.copy2(app_exe, portable_exe)
+
+    # 2. the installer bootstrapper.
+    # --paths is essential: this script lives in installer/, so without it
     # PyInstaller can't resolve the rechelper package at the repo root and the
     # frozen exe crashes with "cannot import name 'theme' from 'rechelper'".
-    run([
-        "pyinstaller", "--noconfirm", "--windowed", "--onefile", "--name", "uninstall",
-        "--icon", str(ROOT / "rechelper" / "assets" / "icon.ico"),
-        "--add-data", f"{ROOT / 'rechelper' / 'assets'};rechelper/assets",
-        "--paths", str(ROOT),
-        *exclude_args(),
-        "--distpath", str(ROOT / "dist_uninstall"),
-        str(ROOT / "installer" / "uninstall_app.py"),
-    ])
-    uninstall_exe = ROOT / "dist_uninstall" / "uninstall.exe"
-    if not uninstall_exe.exists():
-        print("Build failed: uninstaller not found.")
-        sys.exit(1)
-
-    # 3. the installer, embedding both as payload
     run([
         "pyinstaller", "--noconfirm", "--windowed", "--onefile", "--name", "RecSizeHelperSetup",
         "--icon", str(ROOT / "rechelper" / "assets" / "icon.ico"),
         "--add-data", f"{ROOT / 'rechelper' / 'assets'};rechelper/assets",
-        "--add-data", f"{app_exe};payload",
-        "--add-data", f"{uninstall_exe};payload",
         "--paths", str(ROOT),
         *exclude_args(),
         "--distpath", str(ROOT / "dist_installer"),
@@ -107,11 +103,6 @@ def build_all() -> tuple[Path, Path]:
         sys.exit(1)
 
     shutil.rmtree(ROOT / "build", ignore_errors=True)
-
-    # the standalone exe is published under a clearer name for humans;
-    # the auto-updater looks for this exact asset name (update_config.ASSET_NAME)
-    portable_exe = ROOT / "dist" / "RecSizeHelper-portable.exe"
-    shutil.copy2(app_exe, portable_exe)
     return portable_exe, installer_exe
 
 

@@ -1,14 +1,22 @@
 """Glassmorphism installer for Rec Size Helper.
 
-Built as its own PyInstaller onefile exe with the application binary and the
-uninstaller embedded as payload (see release.py). Per-user install: no admin
-rights needed, which also lets the app's auto-updater replace its own exe.
+A small bootstrapper: it doesn't carry the app inside itself, it downloads
+the latest RecSizeHelper-portable.exe from the GitHub release at install
+time. That keeps this exe down to its own Qt runtime (~45 MB) instead of
+embedding a full extra copy of the app (and never needs republishing just
+because a new app version shipped — it always fetches "latest").
+
+Per-user install: no admin rights needed, which also lets the app's own
+auto-updater replace its exe later without a UAC prompt.
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 import winreg
 from pathlib import Path
 
@@ -30,25 +38,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from rechelper import theme
-from rechelper.__version__ import VERSION
+from rechelper import theme, update_config
 from rechelper.glass_background import GlassBackground
 from rechelper.resources import resource_path
 from rechelper.style import build_stylesheet
 
 APP_NAME = "Rec Size Helper"
 EXE_NAME = "RecSizeHelper.exe"
-UNINSTALL_NAME = "uninstall.exe"
 REGISTRY_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\RecSizeHelper"
 
 _CREATE_NO_WINDOW = 0x08000000
-
-
-def payload_path(name: str) -> Path:
-    base = getattr(sys, "_MEIPASS", None)
-    if base:
-        return Path(base) / "payload" / name
-    return Path(__file__).resolve().parent.parent / "dist" / name
 
 
 def default_install_dir() -> Path:
@@ -67,22 +66,43 @@ def desktop_dir() -> Path:
     return Path(buf.value)
 
 
-def make_shortcut(lnk_path: Path, target: Path, workdir: Path):
+def make_shortcut(lnk_path: Path, target: Path, workdir: Path, args: str = ""):
     import win32com.client
 
     shell = win32com.client.Dispatch("WScript.Shell")
     shortcut = shell.CreateShortCut(str(lnk_path))
     shortcut.TargetPath = str(target)
+    shortcut.Arguments = args
     shortcut.WorkingDirectory = str(workdir)
     shortcut.IconLocation = str(target)
     shortcut.Description = APP_NAME
     shortcut.Save()
 
 
+def fetch_latest_release() -> tuple[str, int, str]:
+    """Returns (download_url, size_bytes, version) for the latest release asset."""
+    url = (
+        f"https://api.github.com/repos/{update_config.GITHUB_OWNER}"
+        f"/{update_config.GITHUB_REPO}/releases/latest"
+    )
+    req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+
+    asset = next(
+        (a for a in data.get("assets", []) if a.get("name") == update_config.ASSET_NAME),
+        None,
+    )
+    if not asset:
+        raise RuntimeError("Fichier introuvable dans la dernière version GitHub.")
+    version = str(data.get("tag_name", "")).lstrip("vV") or "?"
+    return asset["browser_download_url"], asset.get("size", 0), version
+
+
 class InstallWorker(QThread):
     progress = Signal(int, int)
     status = Signal(str)
-    done = Signal()
+    done = Signal(str)  # installed version
     failed = Signal(str)
 
     def __init__(self, install_dir: Path, desktop_icon: bool):
@@ -98,54 +118,55 @@ class InstallWorker(QThread):
                 capture_output=True, creationflags=_CREATE_NO_WINDOW,
             )
 
-            self.status.emit("Copie des fichiers…")
+            self.status.emit("Recherche de la dernière version sur GitHub…")
+            download_url, _size, version = fetch_latest_release()
+
+            self.status.emit("Téléchargement de l'application…")
             self.install_dir.mkdir(parents=True, exist_ok=True)
-            self._copy_with_progress(payload_path(EXE_NAME), self.install_dir / EXE_NAME)
-            uninstall_src = payload_path(UNINSTALL_NAME)
-            if uninstall_src.exists():
-                self._copy_with_progress(uninstall_src, self.install_dir / UNINSTALL_NAME)
+            self._download_with_progress(download_url, self.install_dir / EXE_NAME)
 
             self.status.emit("Création des raccourcis…")
             menu_dir = start_menu_dir()
             menu_dir.mkdir(parents=True, exist_ok=True)
             make_shortcut(menu_dir / f"{APP_NAME}.lnk", self.install_dir / EXE_NAME, self.install_dir)
-            if (self.install_dir / UNINSTALL_NAME).exists():
-                make_shortcut(
-                    menu_dir / f"Désinstaller {APP_NAME}.lnk",
-                    self.install_dir / UNINSTALL_NAME, self.install_dir,
-                )
+            make_shortcut(
+                menu_dir / f"Désinstaller {APP_NAME}.lnk",
+                self.install_dir / EXE_NAME, self.install_dir, args="--uninstall",
+            )
             if self.desktop_icon:
                 make_shortcut(desktop_dir() / f"{APP_NAME}.lnk", self.install_dir / EXE_NAME, self.install_dir)
 
             self.status.emit("Enregistrement dans Windows…")
-            self._register_uninstall()
+            self._register_uninstall(version)
 
-            self.done.emit()
-        except Exception as e:
+            self.done.emit(version)
+        except (urllib.error.URLError, TimeoutError, OSError, RuntimeError, ValueError) as e:
             self.failed.emit(str(e))
 
-    def _copy_with_progress(self, src: Path, dst: Path):
-        total = src.stat().st_size
-        copied = 0
-        with open(src, "rb") as fin, open(dst, "wb") as fout:
-            while True:
-                chunk = fin.read(1024 * 1024)
-                if not chunk:
-                    break
-                fout.write(chunk)
-                copied += len(chunk)
-                self.progress.emit(copied, total)
+    def _download_with_progress(self, url: str, dst: Path):
+        req = urllib.request.Request(url, headers={"User-Agent": "RecSizeHelper-Installer"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            total = int(resp.headers.get("Content-Length", 0))
+            done = 0
+            with open(dst, "wb") as fout:
+                while True:
+                    chunk = resp.read(1024 * 256)
+                    if not chunk:
+                        break
+                    fout.write(chunk)
+                    done += len(chunk)
+                    self.progress.emit(done, total)
 
-    def _register_uninstall(self):
+    def _register_uninstall(self, version: str):
         exe = self.install_dir / EXE_NAME
         key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY)
         try:
             winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, APP_NAME)
-            winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, VERSION)
+            winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, version)
             winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, "StundZow")
             winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, str(self.install_dir))
             winreg.SetValueEx(key, "DisplayIcon", 0, winreg.REG_SZ, str(exe))
-            winreg.SetValueEx(key, "UninstallString", 0, winreg.REG_SZ, str(self.install_dir / UNINSTALL_NAME))
+            winreg.SetValueEx(key, "UninstallString", 0, winreg.REG_SZ, f'"{exe}" --uninstall')
             winreg.SetValueEx(key, "NoModify", 0, winreg.REG_DWORD, 1)
             winreg.SetValueEx(key, "NoRepair", 0, winreg.REG_DWORD, 1)
             if exe.exists():
@@ -186,7 +207,7 @@ class InstallerWindow(QWidget):
         title_box.setSpacing(3)
         title = QLabel(APP_NAME)
         title.setObjectName("title")
-        subtitle = QLabel(f"Assistant d'installation — version {VERSION}")
+        subtitle = QLabel("Assistant d'installation — télécharge la dernière version")
         subtitle.setObjectName("subtitle")
         title_box.addWidget(title)
         title_box.addWidget(subtitle)
@@ -230,7 +251,7 @@ class InstallerWindow(QWidget):
         root.addWidget(card)
         root.addStretch()
 
-        self.status_label = QLabel("Prêt à installer.")
+        self.status_label = QLabel("Prêt à installer (connexion internet requise).")
         self.status_label.setObjectName("mutedText")
         root.addWidget(self.status_label)
 
@@ -295,12 +316,15 @@ class InstallerWindow(QWidget):
         if total:
             self.progress_bar.setRange(0, total)
             self.progress_bar.setValue(done)
+            mb_done = done / (1024 * 1024)
+            mb_total = total / (1024 * 1024)
+            self.status_label.setText(f"Téléchargement… {mb_done:.0f} / {mb_total:.0f} Mo")
 
-    def on_done(self):
+    def on_done(self, version: str):
         self._installed = True
         self.progress_bar.setRange(0, 1)
         self.progress_bar.setValue(1)
-        self.status_label.setText("✅  Installation terminée !")
+        self.status_label.setText(f"✅  Installation terminée ! (version {version})")
         self.install_button.setText("Terminer")
         self.install_button.setEnabled(True)
 

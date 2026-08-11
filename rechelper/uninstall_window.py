@@ -1,8 +1,9 @@
-"""Glassmorphism uninstaller for Rec Size Helper.
+"""Glassmorphism uninstall flow for Rec Size Helper.
 
-Ships inside the install directory. Removes shortcuts and the registry entry,
-then hands the folder deletion to a detached script (an exe cannot delete
-itself while running).
+Runs inside the *same* exe as the app itself (invoked as
+`RecSizeHelper.exe --uninstall`) so the installer only has to embed one
+onefile payload instead of a whole second copy of the Qt runtime just for
+this confirmation dialog.
 """
 from __future__ import annotations
 
@@ -13,8 +14,6 @@ import sys
 import tempfile
 import winreg
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPixmap
@@ -28,10 +27,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from rechelper import theme
-from rechelper.glass_background import GlassBackground
-from rechelper.resources import resource_path
-from rechelper.style import build_stylesheet
+from . import theme
+from .glass_background import GlassBackground
+from .resources import resource_path
+from .style import build_stylesheet
 
 APP_NAME = "Rec Size Helper"
 EXE_NAME = "RecSizeHelper.exe"
@@ -70,10 +69,10 @@ def do_uninstall() -> None:
         pass
 
     # The folder (including this exe) is removed after we exit — an exe can't
-    # delete itself while running. Retried a few times: a file just written to
-    # disk (this uninstaller, minutes ago) can still be briefly held by
-    # antivirus real-time scanning, which would otherwise make a single
-    # rmdir attempt fail and abandon the whole tree.
+    # delete itself while running. Retried for a while: a file just written to
+    # disk (this exe, minutes ago) can still be briefly held by antivirus
+    # real-time scanning, which would otherwise make a single rmdir attempt
+    # fail and abandon the whole tree.
     pid = os.getpid()
     bat_path = Path(tempfile.gettempdir()) / "rec_size_helper_uninstall.bat"
     bat_path.write_text(
@@ -90,7 +89,7 @@ set RETRY=0
 rmdir /s /q "{install_dir}" 2>nul
 if exist "{install_dir}" (
     set /a RETRY+=1
-    if %RETRY% LSS 40 (
+    if %RETRY% LSS 90 (
         timeout /t 1 /nobreak >nul
         goto tryremove
     )
@@ -167,14 +166,10 @@ class UninstallWindow(QWidget):
         self.close()
 
 
-def main():
+def run_uninstall():
     app = QApplication(sys.argv)
     palette = theme.get_palette(theme.detect_windows_theme())
     app.setStyleSheet(build_stylesheet(palette))
     window = UninstallWindow()
     window.show()
     sys.exit(app.exec())
-
-
-if __name__ == "__main__":
-    main()

@@ -150,11 +150,11 @@ echo [%date% %time%] move attempt %RETRY% >> "{log_path}"
 move /Y "{new_exe_path}" "{current_exe}" >> "{log_path}" 2>&1
 if exist "{new_exe_path}" (
     set /a RETRY+=1
-    if %RETRY% LSS 40 (
+    if %RETRY% LSS 90 (
         timeout /t 1 /nobreak >nul
         goto trymove
     )
-    echo [%date% %time%] GIVING UP after 20 retries, move never succeeded >> "{log_path}"
+    echo [%date% %time%] GIVING UP after 90 retries, move never succeeded >> "{log_path}"
 )
 
 echo [%date% %time%] relaunching >> "{log_path}"
