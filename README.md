@@ -9,10 +9,12 @@ Pensée pour les créateurs qui enregistrent en MKV puis convertissent en MP4 : 
 ## Installation
 
 1. Va dans l'onglet [Releases](https://github.com/StundZow/rec-size-helper/releases/latest).
-2. Télécharge `RecSizeHelper.exe`.
-3. Double-clique dessus. Aucune installation, aucune dépendance nécessaire.
+2. Télécharge `RecSizeHelperSetup.exe`.
+3. Lance-le : deux cases à cocher (icône sur le Bureau, lancer l'application à la fin), tu choisis où l'installer si tu veux changer l'emplacement par défaut, et c'est prêt. Pas besoin d'être administrateur.
 
-L'application se met à jour toute seule : à chaque nouvelle version publiée ici, une popup te propose de l'installer en un clic.
+L'application se met à jour toute seule ensuite : à chaque nouvelle version publiée ici, une popup te propose de l'installer en un clic, sans repasser par l'installateur.
+
+*(Un `RecSizeHelper.exe` portable est aussi disponible sur la page des releases si tu préfères ne rien installer.)*
 
 ## Fonctionnalités
 
