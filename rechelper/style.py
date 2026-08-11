@@ -1,3 +1,8 @@
+from .resources import resource_path
+
+_CHECK_ICON = resource_path("assets/check.png").replace("\\", "/")
+
+
 def build_stylesheet(p: dict) -> str:
     return f"""
 QWidget {{
@@ -5,6 +10,10 @@ QWidget {{
     color: {p['text']};
     font-family: 'Segoe UI', sans-serif;
     font-size: 13px;
+}}
+
+QDialog {{
+    background-color: {p['bg_base']};
 }}
 
 QLabel#title {{
@@ -28,20 +37,9 @@ QLabel#dimText {{
 }}
 
 QFrame#card {{
-    background-color: {p['card_bg']};
-    border-radius: 14px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 {p['card_bg_top']}, stop:0.22 {p['card_bg']}, stop:1 {p['card_bg']});
+    border-radius: 22px;
     border: 1px solid {p['card_border']};
-}}
-
-QFrame#summaryCard {{
-    background-color: {p['summary_bg']};
-    border: 1px solid {p['summary_border']};
-    border-radius: 14px;
-}}
-QLabel#summaryText {{
-    color: {p['summary_text']};
-    font-size: 19px;
-    font-weight: 700;
 }}
 
 QScrollArea#pinnedScroll {{
@@ -49,49 +47,46 @@ QScrollArea#pinnedScroll {{
     border: none;
 }}
 
-QFrame#pinChip {{
+QFrame#segmentPill {{
     background-color: {p['input_bg']};
     border: 1px solid {p['input_border']};
+    border-radius: 19px;
+}}
+QPushButton#segmentItem {{
+    background: transparent;
+    border: none;
     border-radius: 15px;
-}}
-QFrame#pinChip:hover {{
-    border-color: {p['input_border_hover']};
-}}
-QPushButton#pinChipLabel {{
-    background: transparent;
-    border: none;
-    color: {p['text']};
-    font-size: 12px;
-    padding: 4px 2px;
-    text-align: left;
-}}
-QPushButton#pinChipLabel:hover {{
-    color: {p['text']};
-    font-weight: 600;
-}}
-QPushButton#pinChipRemove, QPushButton#pinChipMove {{
-    background: transparent;
-    border: none;
+    padding: 8px 16px;
     color: {p['text_muted']};
-    font-size: 11px;
-    border-radius: 10px;
+    font-weight: 600;
+    font-size: 13px;
 }}
-QPushButton#pinChipRemove:hover {{
-    background-color: #3a2030;
-    color: #ff9db0;
-}}
-QPushButton#pinChipMove:hover:!disabled {{
-    background-color: {p['input_border_hover']};
+QPushButton#segmentItem:hover {{
     color: {p['text']};
 }}
-QPushButton#pinChipMove:disabled {{
+QPushButton#segmentItem[active="true"] {{
+    background-color: {p['segment_active_bg']};
+    color: {p['segment_active_text']};
+    font-weight: 700;
+}}
+QPushButton#segMini {{
+    background: transparent;
+    border: none;
     color: {p['text_dim']};
+    font-size: 10px;
+    border-radius: 9px;
+}}
+QPushButton#segMini:hover:!disabled {{
+    color: {p['text']};
+}}
+QPushButton#segMini:disabled {{
+    color: transparent;
 }}
 
 QPushButton#pinToggle {{
     background-color: {p['input_bg']};
     border: 1px solid {p['input_border']};
-    border-radius: 8px;
+    border-radius: 14px;
     padding: 8px 14px;
     color: {p['text']};
     font-weight: 600;
@@ -139,7 +134,7 @@ QPushButton#lockToggle:checked {{
 QPushButton#pathButton {{
     background-color: {p['input_bg']};
     border: 1px solid {p['input_border']};
-    border-radius: 8px;
+    border-radius: 14px;
     padding: 9px 18px;
     color: {p['text']};
     font-weight: 600;
@@ -155,7 +150,7 @@ QPushButton#deleteButton {{
     font-weight: 700;
     font-size: 15px;
     border: none;
-    border-radius: 12px;
+    border-radius: 18px;
     padding: 14px 30px;
 }}
 QPushButton#deleteButton:disabled {{
@@ -172,7 +167,7 @@ QPushButton#updateButton {{
     font-weight: 700;
     font-size: 14px;
     border: none;
-    border-radius: 10px;
+    border-radius: 14px;
     padding: 11px 22px;
 }}
 QPushButton#updateButton:hover:!disabled {{
@@ -192,35 +187,27 @@ QTextEdit#updateNotes {{
 }}
 
 QSlider::groove:horizontal {{
-    height: 8px;
+    height: 6px;
     background: {p['groove_bg']};
-    border-radius: 4px;
+    border-radius: 3px;
+}}
+QSlider::handle:horizontal {{
+    background: #ffffff;
+    border: 1px solid rgba(130,120,160,0.35);
+    width: 16px;
+    height: 16px;
+    margin: -6px 0;
+    border-radius: 8px;
 }}
 
 QSlider#deleteSlider::sub-page:horizontal {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #ff5f6d, stop:1 #ff9966);
-    border-radius: 4px;
-}}
-QSlider#deleteSlider::handle:horizontal {{
-    background: #ffffff;
-    border: 3px solid #ff7a52;
-    width: 18px;
-    height: 18px;
-    margin: -6px 0;
-    border-radius: 9px;
+    background: rgba(251,113,133,0.75);
+    border-radius: 3px;
 }}
 
 QSlider#bufferSlider::sub-page:horizontal {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #22d3ee, stop:1 #5eead4);
-    border-radius: 4px;
-}}
-QSlider#bufferSlider::handle:horizontal {{
-    background: #ffffff;
-    border: 3px solid #22d3ee;
-    width: 18px;
-    height: 18px;
-    margin: -6px 0;
-    border-radius: 9px;
+    background: rgba(56,189,248,0.70);
+    border-radius: 3px;
 }}
 
 QProgressBar {{
@@ -234,6 +221,41 @@ QProgressBar {{
 QProgressBar::chunk {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6366f1, stop:1 #22d3ee);
     border-radius: 6px;
+}}
+
+QLineEdit {{
+    background-color: {p['input_bg']};
+    border: 1px solid {p['input_border']};
+    border-radius: 12px;
+    padding: 9px 14px;
+    color: {p['text']};
+    font-size: 13px;
+    selection-background-color: #6366f1;
+}}
+QLineEdit:focus {{
+    border-color: {p['input_border_hover']};
+}}
+
+QCheckBox {{
+    color: {p['text']};
+    font-weight: 600;
+    font-size: 13px;
+    spacing: 12px;
+}}
+QCheckBox::indicator {{
+    width: 24px;
+    height: 24px;
+    border-radius: 8px;
+    background-color: {p['input_bg']};
+    border: 1px solid {p['input_border']};
+}}
+QCheckBox::indicator:hover {{
+    border-color: {p['input_border_hover']};
+}}
+QCheckBox::indicator:checked {{
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6366f1, stop:1 #22d3ee);
+    border: none;
+    image: url("{_CHECK_ICON}");
 }}
 
 QScrollBar:vertical, QScrollBar:horizontal {{

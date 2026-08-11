@@ -1,63 +1,78 @@
 from __future__ import annotations
 
+import re
 import winreg
+
+from PySide6.QtGui import QColor
 
 DARK = {
     "name": "dark",
-    "bg": "#0b0d12",
-    "card_bg": "#161923",
-    "card_border": "#232838",
-    "chart_bg": "#12141c",
-    "chart_grid": "#232838",
-    "text": "#e6e9f0",
-    "text_muted": "#8b93a7",
-    "text_dim": "#565b6c",
-    "input_bg": "#1c2030",
-    "input_border": "#2c3247",
-    "input_border_hover": "#3a4162",
-    "groove_bg": "#1c2030",
-    "summary_bg": "#1f1720",
-    "summary_border": "#4a3040",
-    "summary_text": "#ffe8ee",
-    "summary_sub": "#d9b8c6",
-    "free_segment": "#454b61",
-    "other_segment": "#8b5cf6",
-    "storage_track_bg": "#20242f",
-    "storage_gap": "#12141c",
-    "pin_toggle_checked_bg": "#2a1f3d",
-    "pin_toggle_checked_border": "#8b5cf6",
-    "pin_toggle_checked_text": "#d6c8ff",
-    "scrollbar_bg": "#12141c",
-    "scrollbar_handle": "#2c3247",
+    "bg_base": "#151024",
+    "bg_base2": "#1c1533",
+    "blob_colors": ["#7c3aed", "#db2777", "#2563eb", "#0d9488"],
+    "blob_alpha": 78,
+    "bg": "rgba(0,0,0,0)",
+    "card_bg": "rgba(32,26,54,0.38)",
+    "card_bg_top": "rgba(52,44,82,0.46)",
+    "card_border": "rgba(255,255,255,0.10)",
+    "segment_active_bg": "rgba(255,255,255,0.16)",
+    "segment_active_text": "#ffffff",
+    "chart_grid": "rgba(255,255,255,0.09)",
+    "text": "#f4f1fb",
+    "text_muted": "#b6adcf",
+    "text_dim": "#8d84a6",
+    "input_bg": "rgba(255,255,255,0.07)",
+    "input_border": "rgba(255,255,255,0.12)",
+    "input_border_hover": "rgba(255,255,255,0.25)",
+    "groove_bg": "rgba(255,255,255,0.10)",
+    "summary_bg": "rgba(219,39,119,0.15)",
+    "summary_border": "rgba(236,72,153,0.28)",
+    "summary_text": "#ffe2f0",
+    "summary_sub": "#e3b8d4",
+    "free_segment": "#575070",
+    "other_segment": "#a78bfa",
+    "storage_track_bg": "rgba(255,255,255,0.08)",
+    "storage_gap": "rgba(21,16,36,0.85)",
+    "pin_toggle_checked_bg": "rgba(139,92,246,0.25)",
+    "pin_toggle_checked_border": "rgba(167,139,250,0.55)",
+    "pin_toggle_checked_text": "#e4d9ff",
+    "scrollbar_bg": "rgba(255,255,255,0.04)",
+    "scrollbar_handle": "rgba(255,255,255,0.16)",
 }
 
 LIGHT = {
     "name": "light",
-    "bg": "#eef0f5",
-    "card_bg": "#ffffff",
-    "card_border": "#dde1ea",
-    "chart_bg": "#ffffff",
-    "chart_grid": "#e5e8f0",
-    "text": "#191b22",
-    "text_muted": "#5b6172",
-    "text_dim": "#9aa0b1",
-    "input_bg": "#eef0f6",
-    "input_border": "#d7dbe6",
-    "input_border_hover": "#c0c6d6",
-    "groove_bg": "#e2e5ee",
-    "summary_bg": "#fff0f5",
-    "summary_border": "#f3c4d6",
-    "summary_text": "#7a1e3a",
-    "summary_sub": "#a8506e",
-    "free_segment": "#c7cbd8",
+    "bg_base": "#f7f3fd",
+    "bg_base2": "#edf2fd",
+    "blob_colors": ["#a78bfa", "#f472b6", "#60a5fa", "#2dd4bf"],
+    "blob_alpha": 105,
+    "bg": "rgba(0,0,0,0)",
+    "card_bg": "rgba(255,255,255,0.24)",
+    "card_bg_top": "rgba(255,255,255,0.34)",
+    "card_border": "rgba(255,255,255,0.42)",
+    "segment_active_bg": "rgba(255,255,255,0.92)",
+    "segment_active_text": "#5b21b6",
+    "chart_grid": "rgba(80,60,120,0.10)",
+    "text": "#241f38",
+    "text_muted": "#665d84",
+    "text_dim": "#9d93ba",
+    "input_bg": "rgba(255,255,255,0.38)",
+    "input_border": "rgba(255,255,255,0.60)",
+    "input_border_hover": "rgba(255,255,255,0.90)",
+    "groove_bg": "rgba(255,255,255,0.55)",
+    "summary_bg": "rgba(249,168,212,0.26)",
+    "summary_border": "rgba(244,114,182,0.32)",
+    "summary_text": "#7a1e4a",
+    "summary_sub": "#a8507e",
+    "free_segment": "#c9c2de",
     "other_segment": "#8b5cf6",
-    "storage_track_bg": "#eef0f6",
-    "storage_gap": "#ffffff",
-    "pin_toggle_checked_bg": "#ece5ff",
-    "pin_toggle_checked_border": "#8b5cf6",
+    "storage_track_bg": "rgba(255,255,255,0.45)",
+    "storage_gap": "rgba(247,243,253,0.85)",
+    "pin_toggle_checked_bg": "rgba(139,92,246,0.16)",
+    "pin_toggle_checked_border": "rgba(139,92,246,0.45)",
     "pin_toggle_checked_text": "#5b21b6",
-    "scrollbar_bg": "#eef0f5",
-    "scrollbar_handle": "#c7cbd8",
+    "scrollbar_bg": "rgba(255,255,255,0.2)",
+    "scrollbar_handle": "rgba(120,100,160,0.30)",
 }
 
 
@@ -77,3 +92,14 @@ def detect_windows_theme() -> str:
 
 def get_palette(name: str) -> dict:
     return LIGHT if name == "light" else DARK
+
+
+def qcolor(value: str) -> QColor:
+    """QColor(str) only understands hex/named colors, not the CSS rgba()/rgb()
+    syntax our palettes use for translucency — parse that case manually."""
+    if value.startswith("rgba") or value.startswith("rgb"):
+        nums = re.findall(r"[\d.]+", value)
+        r, g, b = int(float(nums[0])), int(float(nums[1])), int(float(nums[2]))
+        a = int(round(float(nums[3]) * 255)) if len(nums) > 3 else 255
+        return QColor(r, g, b, a)
+    return QColor(value)

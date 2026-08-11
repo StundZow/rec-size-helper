@@ -15,7 +15,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from . import theme
 from .__version__ import VERSION
+from .glass_background import GlassBackground
 from .resources import ICON_PATH
 from .updater import DownloadWorker, UpdateInfo, launch_self_update
 
@@ -26,11 +28,21 @@ class UpdateDialog(QDialog):
         self.info = info
         self.setWindowTitle("Mise à jour disponible")
         self.setWindowIcon(QIcon(ICON_PATH))
-        self.setMinimumWidth(440)
+        self.setMinimumWidth(460)
         self.setModal(True)
         self._worker: DownloadWorker | None = None
 
-        root = QVBoxLayout(self)
+        # same frosted-gradient backdrop as the main window
+        palette = getattr(parent, "palette", None)
+        if not isinstance(palette, dict):
+            palette = theme.get_palette(theme.detect_windows_theme())
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        background = GlassBackground()
+        background.set_theme(palette)
+        outer.addWidget(background)
+
+        root = QVBoxLayout(background)
         root.setContentsMargins(26, 24, 26, 22)
         root.setSpacing(14)
 

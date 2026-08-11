@@ -5,7 +5,7 @@ import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import settings, theme
+from .glass_background import GlassBackground
 from .models import Recording
 from .resources import ICON_PATH
 from .storage_bar import StorageBar
@@ -53,53 +54,70 @@ def _legend_dot(color: str, text: str) -> QLabel:
     return label
 
 
-class PinnedChip(QFrame):
+class PinnedSegment(QWidget):
+    """One segment of the folder pill: ◀ name ▶ ✕ — arrows/✕ stay invisible
+    until hovered so the pill reads as a clean segmented control."""
+
     clicked = Signal(str)
     unpinned = Signal(str)
     move_left = Signal(str)
     move_right = Signal(str)
 
-    def __init__(self, path: str, is_first: bool, is_last: bool):
+    def __init__(self, path: str, is_active: bool, is_first: bool, is_last: bool):
         super().__init__()
         self.path = path
-        self.setObjectName("pinChip")
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        left_button = QPushButton("◀")
-        left_button.setObjectName("pinChipMove")
-        left_button.setFixedSize(18, 20)
-        left_button.setToolTip("Déplacer vers la gauche")
-        left_button.setCursor(Qt.PointingHandCursor)
-        left_button.setEnabled(not is_first)
-        left_button.clicked.connect(lambda: self.move_left.emit(self.path))
-        layout.addWidget(left_button)
+        self._left = QPushButton("◀")
+        self._left.setObjectName("segMini")
+        self._left.setFixedSize(16, 22)
+        self._left.setCursor(Qt.PointingHandCursor)
+        self._left.setEnabled(not is_first)
+        self._left.clicked.connect(lambda: self.move_left.emit(self.path))
+        layout.addWidget(self._left)
 
         name = Path(path).name or path
-        self.name_button = QPushButton(f"📌 {name}")
-        self.name_button.setObjectName("pinChipLabel")
+        self.name_button = QPushButton(name)
+        self.name_button.setObjectName("segmentItem")
+        self.name_button.setProperty("active", "true" if is_active else "false")
         self.name_button.setToolTip(path)
         self.name_button.setCursor(Qt.PointingHandCursor)
         self.name_button.clicked.connect(lambda: self.clicked.emit(self.path))
         layout.addWidget(self.name_button)
 
-        right_button = QPushButton("▶")
-        right_button.setObjectName("pinChipMove")
-        right_button.setFixedSize(18, 20)
-        right_button.setToolTip("Déplacer vers la droite")
-        right_button.setCursor(Qt.PointingHandCursor)
-        right_button.setEnabled(not is_last)
-        right_button.clicked.connect(lambda: self.move_right.emit(self.path))
-        layout.addWidget(right_button)
+        self._right = QPushButton("▶")
+        self._right.setObjectName("segMini")
+        self._right.setFixedSize(16, 22)
+        self._right.setCursor(Qt.PointingHandCursor)
+        self._right.setEnabled(not is_last)
+        self._right.clicked.connect(lambda: self.move_right.emit(self.path))
+        layout.addWidget(self._right)
 
-        remove_button = QPushButton("✕")
-        remove_button.setObjectName("pinChipRemove")
-        remove_button.setFixedSize(20, 20)
-        remove_button.setToolTip("Retirer ce dossier des épingles")
-        remove_button.setCursor(Qt.PointingHandCursor)
-        remove_button.clicked.connect(lambda: self.unpinned.emit(self.path))
-        layout.addWidget(remove_button)
+        self._remove = QPushButton("✕")
+        self._remove.setObjectName("segMini")
+        self._remove.setFixedSize(16, 22)
+        self._remove.setToolTip("Retirer ce dossier des épingles")
+        self._remove.setCursor(Qt.PointingHandCursor)
+        self._remove.clicked.connect(lambda: self.unpinned.emit(self.path))
+        layout.addWidget(self._remove)
+
+        self._set_minis_visible(False)
+
+    def _set_minis_visible(self, visible: bool):
+        # Keep the buttons in the layout (stable width) but hide their glyphs;
+        # clearing the inline style lets the themed QSS rule apply again.
+        for b in (self._left, self._right, self._remove):
+            b.setStyleSheet("" if visible else "color: transparent;")
+
+    def enterEvent(self, event):
+        self._set_minis_visible(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._set_minis_visible(False)
+        super().leaveEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -122,6 +140,8 @@ class MainWindow(QMainWindow):
         self.pinned_folders: list[str] = settings.load_pinned_folders()
         self.theme_name = theme.detect_windows_theme()
         self.palette = theme.get_palette(self.theme_name)
+        self._shown_once = False
+        self._fade_anim: QPropertyAnimation | None = None
 
         self._build_ui()
         self.refresh_pinned_row()
@@ -142,6 +162,17 @@ class MainWindow(QMainWindow):
         dialog = UpdateDialog(info, parent=self)
         dialog.exec()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._shown_once:
+            self._shown_once = True
+            self._fade_anim = QPropertyAnimation(self, b"windowOpacity")
+            self._fade_anim.setStartValue(0.0)
+            self._fade_anim.setEndValue(1.0)
+            self._fade_anim.setDuration(300)
+            self._fade_anim.setEasingCurve(QEasingCurve.OutCubic)
+            self._fade_anim.start()
+
     # ---------------------------------------------------------------- UI --
     def _build_ui(self):
         outer_scroll = QScrollArea()
@@ -150,7 +181,8 @@ class MainWindow(QMainWindow):
         outer_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setCentralWidget(outer_scroll)
 
-        central = QWidget()
+        self.glass_background = GlassBackground()
+        central = self.glass_background
         outer_scroll.setWidget(central)
         root = QVBoxLayout(central)
         root.setContentsMargins(28, 24, 28, 24)
@@ -175,25 +207,31 @@ class MainWindow(QMainWindow):
         self.theme_button.setToolTip("Basculer entre thème clair et thème sombre")
         self.theme_button.clicked.connect(self.toggle_theme)
         header.addWidget(self.theme_button)
-
-        self.folder_button = QPushButton("📁  Choisir un dossier…")
-        self.folder_button.setObjectName("pathButton")
-        self.folder_button.clicked.connect(self.choose_folder)
-        header.addWidget(self.folder_button)
         root.addLayout(header)
 
+        # segmented pill: "Parcourir…" + one segment per pinned folder
         self.pinned_scroll = QScrollArea()
         self.pinned_scroll.setWidgetResizable(True)
-        self.pinned_scroll.setFixedHeight(42)
+        self.pinned_scroll.setFixedHeight(52)
         self.pinned_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.pinned_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.pinned_scroll.setFrameShape(QFrame.NoFrame)
         self.pinned_scroll.setObjectName("pinnedScroll")
-        self.pinned_container = QWidget()
-        self.pinned_layout = QHBoxLayout(self.pinned_container)
-        self.pinned_layout.setContentsMargins(0, 0, 0, 0)
-        self.pinned_layout.setSpacing(8)
-        self.pinned_scroll.setWidget(self.pinned_container)
+
+        pill_row_widget = QWidget()
+        pill_row = QHBoxLayout(pill_row_widget)
+        pill_row.setContentsMargins(0, 2, 0, 2)
+        pill_row.setSpacing(0)
+
+        self.segment_pill = QFrame()
+        self.segment_pill.setObjectName("segmentPill")
+        self.pinned_layout = QHBoxLayout(self.segment_pill)
+        self.pinned_layout.setContentsMargins(5, 3, 5, 3)
+        self.pinned_layout.setSpacing(2)
+
+        pill_row.addWidget(self.segment_pill)
+        pill_row.addStretch()
+        self.pinned_scroll.setWidget(pill_row_widget)
         root.addWidget(self.pinned_scroll)
 
         folder_row = QHBoxLayout()
@@ -247,9 +285,6 @@ class MainWindow(QMainWindow):
         storage_legend.addWidget(_legend_dot(OTHER_COLOR, "Autres fichiers"))
         storage_legend.addWidget(_legend_dot(FREE_COLOR, "Libre"))
         storage_legend.addStretch()
-        self.recordings_count_label = QLabel("🗂️  0 enregistrements")
-        self.recordings_count_label.setStyleSheet(f"color: {OTHER_COLOR}; font-size: 12px; font-weight: 700;")
-        storage_legend.addWidget(self.recordings_count_label)
         storage_layout.addLayout(storage_legend)
 
         root.addWidget(storage_frame)
@@ -306,22 +341,6 @@ class MainWindow(QMainWindow):
 
         root.addWidget(sliders_frame)
 
-        self.summary_frame = QFrame()
-        self.summary_frame.setObjectName("summaryCard")
-        summary_layout = QHBoxLayout(self.summary_frame)
-        summary_layout.setContentsMargins(20, 14, 20, 14)
-        summary_layout.setSpacing(14)
-
-        summary_icon = QLabel("🗑️")
-        summary_icon.setStyleSheet("font-size: 30px;")
-        summary_layout.addWidget(summary_icon)
-
-        self.summary_label = QLabel("")
-        self.summary_label.setObjectName("summaryText")
-        self.summary_label.setWordWrap(True)
-        summary_layout.addWidget(self.summary_label, stretch=1)
-        root.addWidget(self.summary_frame)
-
         action_row = QHBoxLayout()
         action_row.addStretch()
 
@@ -341,20 +360,27 @@ class MainWindow(QMainWindow):
             if w:
                 w.deleteLater()
 
-        if not self.pinned_folders:
-            placeholder = QLabel("📌 Épingle un dossier pour le retrouver ici en un clic")
-            placeholder.setObjectName("dimText")
-            self.pinned_layout.addWidget(placeholder)
-        else:
-            last_idx = len(self.pinned_folders) - 1
-            for idx, path in enumerate(self.pinned_folders):
-                chip = PinnedChip(path, is_first=(idx == 0), is_last=(idx == last_idx))
-                chip.clicked.connect(self.select_pinned_folder)
-                chip.unpinned.connect(self.unpin_folder)
-                chip.move_left.connect(lambda p: self.move_pin(p, -1))
-                chip.move_right.connect(lambda p: self.move_pin(p, 1))
-                self.pinned_layout.addWidget(chip)
-        self.pinned_layout.addStretch()
+        self.browse_button = QPushButton("📁  Parcourir…")
+        self.browse_button.setObjectName("segmentItem")
+        self.browse_button.setProperty("active", "false")
+        self.browse_button.setCursor(Qt.PointingHandCursor)
+        self.browse_button.clicked.connect(self.choose_folder)
+        self.pinned_layout.addWidget(self.browse_button)
+
+        current = str(self.folder) if self.folder else None
+        last_idx = len(self.pinned_folders) - 1
+        for idx, path in enumerate(self.pinned_folders):
+            seg = PinnedSegment(
+                path,
+                is_active=(path == current),
+                is_first=(idx == 0),
+                is_last=(idx == last_idx),
+            )
+            seg.clicked.connect(self.select_pinned_folder)
+            seg.unpinned.connect(self.unpin_folder)
+            seg.move_left.connect(lambda p: self.move_pin(p, -1))
+            seg.move_right.connect(lambda p: self.move_pin(p, 1))
+            self.pinned_layout.addWidget(seg)
 
     def move_pin(self, path: str, direction: int):
         try:
@@ -394,6 +420,8 @@ class MainWindow(QMainWindow):
         self.pin_button.setChecked(is_pinned)
         self.pin_button.setText("📌  Épinglé" if is_pinned else "📌  Épingler")
         self.pin_button.setEnabled(bool(self.folder))
+        # rebuild the pill so the active-folder highlight follows along
+        self.refresh_pinned_row()
 
     def select_pinned_folder(self, path: str):
         folder = Path(path)
@@ -421,7 +449,7 @@ class MainWindow(QMainWindow):
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)
         self.progress.setFormat("Analyse en cours…")
-        self.folder_button.setEnabled(False)
+        self.browse_button.setEnabled(False)
         self.delete_button.setEnabled(False)
 
         self.worker = ScanWorker(self.folder)
@@ -439,20 +467,19 @@ class MainWindow(QMainWindow):
     def on_scan_finished(self, recordings: list[Recording]):
         self.recordings = recordings
         self.progress.setVisible(False)
-        self.folder_button.setEnabled(True)
+        self.browse_button.setEnabled(True)
         self.refresh_stats()
         self.timeline.set_recordings(self.recordings)
         self.update_preview()
 
     def on_scan_error(self, message: str):
         self.progress.setVisible(False)
-        self.folder_button.setEnabled(True)
+        self.browse_button.setEnabled(True)
         QMessageBox.critical(self, "Erreur", f"Impossible d'analyser le dossier :\n{message}")
 
     def refresh_stats(self):
         self._total_mkv_bytes = sum(r.mkv.size for r in self.recordings if r.mkv)
         self._total_mp4_bytes = sum(r.mp4.size for r in self.recordings if r.mp4)
-        self.recordings_count_label.setText(f"🗂️  {len(self.recordings)} enregistrements")
 
         self._current_free_bytes = None
         self._disk_total_bytes = None
@@ -564,7 +591,7 @@ class MainWindow(QMainWindow):
         if not self.recordings:
             self.delete_label.setText("🗑️  Sélectionnez d'abord un dossier")
             self.buffer_label.setText("🛡️  Marge MKV")
-            self.summary_label.setText("Sélectionnez un dossier pour voir ce qui serait supprimé.")
+            self.delete_button.setText("Supprimer définitivement")
             self.delete_button.setEnabled(False)
             self.timeline.set_cutoffs(None, None)
             self._update_storage_visual(0, 0)
@@ -589,21 +616,15 @@ class MainWindow(QMainWindow):
         mp4_freed_bytes = sum(f.size for f in mp4_to_delete)
         self._update_storage_visual(mkv_freed_bytes, mp4_freed_bytes)
 
-        main_line = (
-            f"{len(mp4_to_delete)} MP4 + {len(mkv_to_delete)} MKV seront supprimés définitivement "
-            f"— {format_size(total_freed)} libérés"
-        )
-        summary_html = f"<div>{main_line}</div>"
-        if self._current_free_bytes is not None:
-            projected_free = self._current_free_bytes + total_freed
-            summary_html += (
-                f"<div style='font-size:13px; font-weight:500; color:{self.palette['summary_sub']}; margin-top:5px;'>"
-                f"💽 Espace libre après suppression : ~{format_size(projected_free)} "
-                f"(contre {format_size(self._current_free_bytes)} actuellement)"
-                "</div>"
+        if mp4_to_delete or mkv_to_delete:
+            self.delete_button.setText(
+                f"Supprimer {len(mp4_to_delete)} MP4 + {len(mkv_to_delete)} MKV"
+                f"  •  {format_size(total_freed)}"
             )
-        self.summary_label.setText(summary_html)
-        self.delete_button.setEnabled(bool(mp4_to_delete or mkv_to_delete))
+            self.delete_button.setEnabled(True)
+        else:
+            self.delete_button.setText("Supprimer définitivement")
+            self.delete_button.setEnabled(False)
 
     # --------------------------------------------------------------- theme --
     def toggle_theme(self):
@@ -616,6 +637,7 @@ class MainWindow(QMainWindow):
         if app:
             app.setStyleSheet(build_stylesheet(self.palette))
         self.theme_button.setText("☀" if name == "dark" else "☾")
+        self.glass_background.set_theme(self.palette)
         self.timeline.set_theme(self.palette)
         self.storage_bar.set_theme(self.palette)
         if self.recordings or self.folder:
