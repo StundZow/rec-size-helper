@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -15,7 +16,6 @@ from . import update_config
 from .__version__ import VERSION
 
 _CREATE_NO_WINDOW = 0x08000000
-_CREATE_NEW_PROCESS_GROUP = 0x00000200
 
 
 def parse_version(v: str) -> tuple[int, ...]:
@@ -116,35 +116,50 @@ class DownloadWorker(QThread):
             self.error.emit(str(e))
 
 
-def launch_self_update(new_exe_path: Path) -> None:
+def launch_self_update(new_exe_path: Path) -> Path:
     """Swaps the running exe for the freshly downloaded one, then relaunches it.
 
     Only meaningful for a frozen (PyInstaller) build — the running exe can't
     overwrite itself while it's still open, so a tiny detached batch script
-    waits for this process to fully exit, then moves the new file into place.
+    waits for this exact process (by PID) to fully exit, then moves the new
+    file into place. Every step is logged to a temp file so a stuck update
+    can be diagnosed after the fact instead of just silently hanging.
+
+    Returns the log file path.
     """
     current_exe = Path(sys.executable)
+    pid = os.getpid()
+    log_path = Path(tempfile.gettempdir()) / "rec_size_helper_update.log"
     bat_path = Path(tempfile.gettempdir()) / "rec_size_helper_update.bat"
     bat_content = f"""@echo off
+echo [%date% %time%] waiting for pid {pid} to exit > "{log_path}"
 :waitproc
-tasklist /FI "IMAGENAME eq {current_exe.name}" 2>NUL | find /I "{current_exe.name}" >NUL
-if "%ERRORLEVEL%"=="0" (
-    timeout /t 1 /nobreak > nul
+tasklist /FI "PID eq {pid}" 2>NUL | find "{pid}" >NUL
+if %errorlevel%==0 (
+    timeout /t 1 /nobreak >nul
     goto waitproc
 )
 
+echo [%date% %time%] clearing any other running copies >> "{log_path}"
+taskkill /F /IM "{current_exe.name}" >NUL 2>&1
+timeout /t 1 /nobreak >nul
+
 set RETRY=0
 :trymove
-move /Y "{new_exe_path}" "{current_exe}" > nul 2>&1
+echo [%date% %time%] move attempt %RETRY% >> "{log_path}"
+move /Y "{new_exe_path}" "{current_exe}" >> "{log_path}" 2>&1
 if exist "{new_exe_path}" (
     set /a RETRY+=1
     if %RETRY% LSS 20 (
-        timeout /t 1 /nobreak > nul
+        timeout /t 1 /nobreak >nul
         goto trymove
     )
+    echo [%date% %time%] GIVING UP after 20 retries, move never succeeded >> "{log_path}"
 )
 
+echo [%date% %time%] relaunching >> "{log_path}"
 start "" "{current_exe}"
+echo [%date% %time%] done >> "{log_path}"
 del "%~f0"
 """
     bat_path.write_text(bat_content, encoding="utf-8")
@@ -153,6 +168,7 @@ del "%~f0"
     # DETACHED_PROCESS has no console at all and makes them fail silently.
     subprocess.Popen(
         ["cmd", "/c", str(bat_path)],
-        creationflags=_CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW,
+        creationflags=_CREATE_NO_WINDOW,
         close_fds=True,
     )
+    return log_path
