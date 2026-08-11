@@ -69,12 +69,32 @@ def do_uninstall() -> None:
     except OSError:
         pass
 
-    # the folder (including this exe) is removed after we exit
+    # The folder (including this exe) is removed after we exit — an exe can't
+    # delete itself while running. Retried a few times: a file just written to
+    # disk (this uninstaller, minutes ago) can still be briefly held by
+    # antivirus real-time scanning, which would otherwise make a single
+    # rmdir attempt fail and abandon the whole tree.
+    pid = os.getpid()
     bat_path = Path(tempfile.gettempdir()) / "rec_size_helper_uninstall.bat"
     bat_path.write_text(
         f"""@echo off
-timeout /t 2 /nobreak >nul
-rmdir /s /q "{install_dir}"
+:waitproc
+tasklist /FI "PID eq {pid}" 2>NUL | find "{pid}" >NUL
+if %errorlevel%==0 (
+    timeout /t 1 /nobreak >nul
+    goto waitproc
+)
+
+set RETRY=0
+:tryremove
+rmdir /s /q "{install_dir}" 2>nul
+if exist "{install_dir}" (
+    set /a RETRY+=1
+    if %RETRY% LSS 40 (
+        timeout /t 1 /nobreak >nul
+        goto tryremove
+    )
+)
 del "%~f0"
 """,
         encoding="utf-8",

@@ -72,10 +72,14 @@ def build_all() -> tuple[Path, Path]:
         sys.exit(1)
 
     # 2. the uninstaller (small, lives inside the install folder)
+    # --paths is essential: these scripts live in installer/, so without it
+    # PyInstaller can't resolve the rechelper package at the repo root and the
+    # frozen exe crashes with "cannot import name 'theme' from 'rechelper'".
     run([
         "pyinstaller", "--noconfirm", "--windowed", "--onefile", "--name", "uninstall",
         "--icon", str(ROOT / "rechelper" / "assets" / "icon.ico"),
         "--add-data", f"{ROOT / 'rechelper' / 'assets'};rechelper/assets",
+        "--paths", str(ROOT),
         *exclude_args(),
         "--distpath", str(ROOT / "dist_uninstall"),
         str(ROOT / "installer" / "uninstall_app.py"),
@@ -92,6 +96,7 @@ def build_all() -> tuple[Path, Path]:
         "--add-data", f"{ROOT / 'rechelper' / 'assets'};rechelper/assets",
         "--add-data", f"{app_exe};payload",
         "--add-data", f"{uninstall_exe};payload",
+        "--paths", str(ROOT),
         *exclude_args(),
         "--distpath", str(ROOT / "dist_installer"),
         str(ROOT / "installer" / "installer_app.py"),
@@ -102,7 +107,12 @@ def build_all() -> tuple[Path, Path]:
         sys.exit(1)
 
     shutil.rmtree(ROOT / "build", ignore_errors=True)
-    return app_exe, installer_exe
+
+    # the standalone exe is published under a clearer name for humans;
+    # the auto-updater looks for this exact asset name (update_config.ASSET_NAME)
+    portable_exe = ROOT / "dist" / "RecSizeHelper-portable.exe"
+    shutil.copy2(app_exe, portable_exe)
+    return portable_exe, installer_exe
 
 
 def main():

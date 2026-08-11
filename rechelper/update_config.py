@@ -1,6 +1,6 @@
 GITHUB_OWNER = "StundZow"
 GITHUB_REPO = "rec-size-helper"
-ASSET_NAME = "RecSizeHelper.exe"
+ASSET_NAME = "RecSizeHelper-portable.exe"
 
 
 def is_configured() -> bool:

@@ -14,7 +14,7 @@ Pensée pour les créateurs qui enregistrent en MKV puis convertissent en MP4 : 
 
 L'application se met à jour toute seule ensuite : à chaque nouvelle version publiée ici, une popup te propose de l'installer en un clic, sans repasser par l'installateur.
 
-*(Un `RecSizeHelper.exe` portable est aussi disponible sur la page des releases si tu préfères ne rien installer.)*
+*(Un `RecSizeHelper-portable.exe` est aussi disponible sur la page des releases si tu préfères ne rien installer.)*
 
 ## Fonctionnalités
 
