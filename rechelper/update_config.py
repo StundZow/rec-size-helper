@@ -1,6 +1,5 @@
-# Filled in once the GitHub repository exists (see setup instructions from Claude).
-GITHUB_OWNER = ""
-GITHUB_REPO = ""
+GITHUB_OWNER = "StundZow"
+GITHUB_REPO = "rec-size-helper"
 ASSET_NAME = "RecSizeHelper.exe"
 
 
