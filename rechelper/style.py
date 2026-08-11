@@ -83,6 +83,27 @@ QPushButton#segMini:disabled {{
     color: transparent;
 }}
 
+QFrame#segmentIconPill {{
+    background-color: {p['input_bg']};
+    border: 1px solid {p['input_border']};
+    border-radius: 17px;
+}}
+QPushButton#segmentIconItem {{
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 13px;
+    padding: 4px 11px;
+    font-size: 15px;
+    color: {p['text_muted']};
+}}
+QPushButton#segmentIconItem:hover {{
+    color: {p['text']};
+}}
+QPushButton#segmentIconItem[active="true"] {{
+    background-color: {p['pin_toggle_checked_bg']};
+    border: 1px solid {p['pin_toggle_checked_border']};
+}}
+
 QPushButton#pinToggle {{
     background-color: {p['input_bg']};
     border: 1px solid {p['input_border']};

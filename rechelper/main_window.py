@@ -138,7 +138,8 @@ class MainWindow(QMainWindow):
         self._syncing_sliders = False
         self._locked_gap = 0
         self.pinned_folders: list[str] = settings.load_pinned_folders()
-        self.theme_name = theme.detect_windows_theme()
+        self.app_settings = settings.load_settings()
+        self.theme_name = self.app_settings.get("theme") or theme.detect_windows_theme()
         self.palette = theme.get_palette(self.theme_name)
         self._shown_once = False
         self._fade_anim: QPropertyAnimation | None = None
@@ -200,13 +201,13 @@ class MainWindow(QMainWindow):
         header.addLayout(title_box)
         header.addStretch()
 
-        self.theme_button = QPushButton()
-        self.theme_button.setObjectName("iconButton")
-        self.theme_button.setFixedSize(34, 34)
-        self.theme_button.setCursor(Qt.PointingHandCursor)
-        self.theme_button.setToolTip("Basculer entre thème clair et thème sombre")
-        self.theme_button.clicked.connect(self.toggle_theme)
-        header.addWidget(self.theme_button)
+        self.settings_button = QPushButton("⚙")
+        self.settings_button.setObjectName("iconButton")
+        self.settings_button.setFixedSize(34, 34)
+        self.settings_button.setCursor(Qt.PointingHandCursor)
+        self.settings_button.setToolTip("Paramètres")
+        self.settings_button.clicked.connect(self.open_settings)
+        header.addWidget(self.settings_button)
         root.addLayout(header)
 
         # segmented pill: "Parcourir…" + one segment per pinned folder
@@ -329,14 +330,15 @@ class MainWindow(QMainWindow):
         self.mkv_slider.valueChanged.connect(self.on_mkv_slider_changed)
         mkv_slider_row.addWidget(self.mkv_slider, stretch=1)
 
-        self.lock_button = QPushButton("🔒")
+        default_lock = bool(self.app_settings.get("auto_lock_mkv", True))
+        self.lock_button = QPushButton("🔒" if default_lock else "🔓")
         self.lock_button.setObjectName("lockToggle")
         self.lock_button.setCheckable(True)
         self.lock_button.setFixedSize(30, 30)
         self.lock_button.setCursor(Qt.PointingHandCursor)
         self.lock_button.setToolTip("Verrouiller l'écart entre les deux curseurs")
         self.lock_button.toggled.connect(self.toggle_lock)
-        self.lock_button.setChecked(True)
+        self.lock_button.setChecked(default_lock)
         mkv_slider_row.addWidget(self.lock_button)
         sl_layout.addLayout(mkv_slider_row)
 
@@ -628,8 +630,11 @@ class MainWindow(QMainWindow):
             self.delete_button.setEnabled(False)
 
     # --------------------------------------------------------------- theme --
-    def toggle_theme(self):
-        self.apply_theme("light" if self.theme_name == "dark" else "dark")
+    def open_settings(self):
+        from .settings_dialog import SettingsDialog
+
+        dialog = SettingsDialog(self)
+        dialog.exec()
 
     def apply_theme(self, name: str):
         self.theme_name = name
@@ -637,7 +642,6 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app:
             app.setStyleSheet(build_stylesheet(self.palette))
-        self.theme_button.setText("☀" if name == "dark" else "☾")
         self.glass_background.set_theme(self.palette)
         self.timeline.set_theme(self.palette)
         self.storage_bar.set_theme(self.palette)
