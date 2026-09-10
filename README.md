@@ -51,6 +51,32 @@ Parce qu'il faut croiser deux formats, deviner quels MP4 ont déjà été conver
 
 L'installateur télécharge directement la dernière version depuis les releases GitHub au moment de l'installation — il n'embarque rien lui-même, ce qui le garde léger. L'appli elle-même vérifie les nouvelles versions à chaque lancement et propose une mise à jour en un clic quand il y en a une.
 
+## Écran de lancement
+
+Dès le double-clic, un écran de lancement apparaît (icône qui respire, nom de l'appli, barre de
+progression avec reflet, taches de couleur qui dérivent — dans la palette et le thème de l'appli),
+puis se fond dans la fenêtre principale une fois qu'elle est prête. La barre n'avance que sur de
+**vraies étapes** du chargement — jamais sur un minuteur — donc elle ne prétend jamais un avancement
+qui n'a pas eu lieu.
+
+Pourquoi un écran de lancement : le premier rendu de texte d'une appli Qt sous Windows coûte environ
+**1,5 s** — la base de polices (~0,5 s avec plusieurs centaines de familles installées) puis la
+police emoji (~1 s, l'interface en est pleine). Ce coût est payé une seule fois, mais il gèle le
+processus pendant ce temps : un verrou du moteur de polices bloque toute peinture, puis le GIL.
+L'écran de lancement tourne donc dans un **second processus** léger (le même exe relancé avec
+`--splash`), qui ne dessine que des images et des formes — aucun texte, sinon il paierait lui aussi
+la base de polices ; le nom de l'appli est une image pré-rendue, `rechelper/assets/wordmark_*.png`,
+à régénérer avec `python tools/make_wordmark.py` si le nom ou la palette change.
+
+Mesuré sur l'exe (build onefile, 3 lancements) : l'écran de lancement apparaît à **~0,8 s** après
+le double-clic, là où la fenêtre principale n'arrive qu'à ~2,4 s — et rien n'était visible avant
+elle auparavant. Il se ferme tout seul si l'appli disparaît, et ne survit jamais plus de 20 s quoi
+qu'il arrive.
+
+Pour diagnostiquer un lancement lent : avec `RSH_TIMING=<fichier>` dans l'environnement, l'appli y
+note le temps écoulé depuis la création du processus à chaque étape (Qt créé, polices, emoji,
+fenêtre construite, fenêtre affichée).
+
 ## Lancer depuis les sources
 
 ```bash

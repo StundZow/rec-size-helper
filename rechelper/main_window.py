@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -33,9 +32,10 @@ from .resources import ICON_PATH
 from .storage_bar import StorageBar
 from .style import build_stylesheet
 from .timeline_widget import TimelineWidget
-from .update_dialog import UpdateDialog
-from .updater import UpdateCheckWorker, is_frozen
-from .worker import ScanWorker
+
+# Pas d'import en tête pour ce qui ne sert pas à AFFICHER la fenêtre : l'updater tire
+# toute la pile réseau (urllib → http.client → email, ~230 ms), le scanner tire
+# subprocess/concurrent.futures. Ils s'importent au moment de servir (voir plus bas).
 
 MKV_COLOR = "#ef4444"
 MP4_COLOR = "#3b82f6"
@@ -178,11 +178,14 @@ class MainWindow(QMainWindow):
         self.refresh_pinned_row()
         self.apply_theme(self.theme_name)
         self.update_preview()
-        self._update_worker: UpdateCheckWorker | None = None
-        self.check_for_updates()
+        # Rien de coûteux ici : la vérification de mise à jour (réseau) est lancée par
+        # main() une fois la fenêtre affichée, pas pendant sa construction.
+        self._update_worker = None
 
     # -------------------------------------------------------------- update --
     def check_for_updates(self):
+        from .updater import UpdateCheckWorker, is_frozen
+
         if not is_frozen():
             return
         self._update_worker = UpdateCheckWorker()
@@ -190,6 +193,8 @@ class MainWindow(QMainWindow):
         self._update_worker.start()
 
     def on_update_found(self, info):
+        from .update_dialog import UpdateDialog
+
         dialog = UpdateDialog(info, parent=self)
         dialog.exec()
 
@@ -515,6 +520,8 @@ class MainWindow(QMainWindow):
         self.browse_button.setEnabled(False)
         self.delete_button.setEnabled(False)
 
+        from .worker import ScanWorker
+
         self.worker = ScanWorker(self.folder)
         self.worker.progress.connect(self.on_scan_progress)
         self.worker.finished_scan.connect(self.on_scan_finished)
@@ -554,6 +561,8 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            import shutil
+
             usage = shutil.disk_usage(self.folder)
         except OSError:
             self.storage_bar.set_data([], 1)
