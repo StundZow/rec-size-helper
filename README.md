@@ -42,7 +42,7 @@ Parce qu'il faut croiser deux formats, deviner quels MP4 ont déjà été conver
 
 1. [Télécharge `RecSizeHelperSetup.exe`](https://github.com/StundZow/rec-size-helper/releases/latest/download/RecSizeHelperSetup.exe) et lance-le — pas besoin d'être administrateur.
 2. Deux cases à cocher (icône sur le Bureau, lancer l'application à la fin), et un emplacement d'installation modifiable si tu veux changer le chemin par défaut.
-3. Une fois l'appli ouverte, clique **📁 Parcourir…** pour choisir le dossier de tes enregistrements. Épingle-le (📌) pour y revenir en un clic la prochaine fois.
+3. Une fois l'appli ouverte, clique **Parcourir…** pour choisir le dossier de tes enregistrements. Épingle-le (bouton **Épingler**) pour y revenir en un clic la prochaine fois.
 4. Ajuste les deux curseurs — jusqu'à quand supprimer, et la marge de sécurité MKV — puis vérifie l'aperçu de la barre de stockage avant de valider.
 
 *(Un `RecSizeHelper-portable.exe` est aussi disponible sur la page des releases si tu préfères ne rien installer.)*
@@ -54,15 +54,16 @@ L'installateur télécharge directement la dernière version depuis les releases
 ## Écran de lancement
 
 Dès le double-clic, un écran de lancement apparaît (icône qui respire, nom de l'appli, barre de
-progression avec reflet, taches de couleur qui dérivent — dans la palette et le thème de l'appli),
+progression au dégradé du logo avec reflet — sur une carte unie, dans le thème de l'appli),
 puis se fond dans la fenêtre principale une fois qu'elle est prête. La barre n'avance que sur de
 **vraies étapes** du chargement — jamais sur un minuteur — donc elle ne prétend jamais un avancement
 qui n'a pas eu lieu.
 
 Pourquoi un écran de lancement : le premier rendu de texte d'une appli Qt sous Windows coûte environ
-**1,5 s** — la base de polices (~0,5 s avec plusieurs centaines de familles installées) puis la
-police emoji (~1 s, l'interface en est pleine). Ce coût est payé une seule fois, mais il gèle le
-processus pendant ce temps : un verrou du moteur de polices bloque toute peinture, puis le GIL.
+**0,5 s** pour la base de polices (avec plusieurs centaines de familles installées), plus ~1 s pour la
+police emoji quand un dossier épinglé porte un emoji (l'interface elle-même n'en affiche aucun : ses
+icônes sont dessinées au trait). Ce coût est payé une seule fois, mais il gèle le processus pendant
+ce temps : un verrou du moteur de polices bloque toute peinture, puis le GIL.
 L'écran de lancement tourne donc dans un **second processus** léger (le même exe relancé avec
 `--splash`), qui ne dessine que des images et des formes — aucun texte, sinon il paierait lui aussi
 la base de polices ; le nom de l'appli est une image pré-rendue, `rechelper/assets/wordmark_*.png`,
@@ -74,8 +75,8 @@ elle auparavant. Il se ferme tout seul si l'appli disparaît, et ne survit jamai
 qu'il arrive.
 
 Pour diagnostiquer un lancement lent : avec `RSH_TIMING=<fichier>` dans l'environnement, l'appli y
-note le temps écoulé depuis la création du processus à chaque étape (Qt créé, polices, emoji,
-fenêtre construite, fenêtre affichée).
+note le temps écoulé depuis la création du processus à chaque étape (Qt créé, polices, emoji
+si besoin, fenêtre construite, fenêtre affichée).
 
 ## Lancer depuis les sources
 

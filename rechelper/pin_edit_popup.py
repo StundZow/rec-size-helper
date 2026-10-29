@@ -3,16 +3,11 @@ from __future__ import annotations
 import ctypes
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (
-    QFileDialog,
-    QFrame,
-    QHBoxLayout,
-    QLineEdit,
-    QPushButton,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QFileDialog, QFrame, QHBoxLayout, QLineEdit, QPushButton, QVBoxLayout
 
+from . import icons
 from .overlay_base import ModalOverlay
+from .widgets import button, icon_button
 
 _VK_LWIN = 0x5B
 _VK_OEM_PERIOD = 0xBE
@@ -35,7 +30,16 @@ class _EmojiLineEdit(QLineEdit):
     Selects all existing text first so the panel's insertion (which types
     like a keystroke) replaces the old emoji instead of appending to it —
     this field only ever holds one icon at a time.
+
+    Left empty, the pin uses the app's line-art folder icon — shown inside the
+    field so it's clear what "no emoji" looks like.
     """
+
+    def __init__(self, text: str):
+        super().__init__(text)
+        self._default_icon = self.addAction(icons.icon("folder", "muted", 18), QLineEdit.LeadingPosition)
+        self._default_icon.setVisible(not text)
+        self.textChanged.connect(lambda value: self._default_icon.setVisible(not value))
 
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
@@ -64,34 +68,20 @@ class PinEditOverlay(ModalOverlay):
 
         card = QFrame()
         card.setObjectName("modalCard")
-        card.setFixedWidth(340)
+        card.setFixedWidth(360)
         layout = QVBoxLayout(card)
         layout.setContentsMargins(20, 18, 20, 18)
-        layout.setSpacing(12)
+        layout.setSpacing(14)
 
         top_row = QHBoxLayout()
-        left_btn = QPushButton("◀")
-        left_btn.setObjectName("iconButton")
-        left_btn.setFixedSize(32, 32)
-        left_btn.setCursor(Qt.PointingHandCursor)
+        left_btn = icon_button("chevron_left", "Déplacer vers la gauche", self._on_move_left, size=34)
         left_btn.setEnabled(not is_first)
-        left_btn.clicked.connect(self._on_move_left)
         top_row.addWidget(left_btn)
         top_row.addStretch()
-
-        confirm_btn = QPushButton("✓")
-        confirm_btn.setObjectName("pinConfirmButton")
-        confirm_btn.setCursor(Qt.PointingHandCursor)
-        confirm_btn.clicked.connect(self._on_confirm)
-        top_row.addWidget(confirm_btn)
+        top_row.addWidget(button("Valider", "check", "primary", self._on_confirm))
         top_row.addStretch()
-
-        right_btn = QPushButton("▶")
-        right_btn.setObjectName("iconButton")
-        right_btn.setFixedSize(32, 32)
-        right_btn.setCursor(Qt.PointingHandCursor)
+        right_btn = icon_button("chevron_right", "Déplacer vers la droite", self._on_move_right, size=34)
         right_btn.setEnabled(not is_last)
-        right_btn.clicked.connect(self._on_move_right)
         top_row.addWidget(right_btn)
         layout.addLayout(top_row)
 
@@ -100,10 +90,10 @@ class PinEditOverlay(ModalOverlay):
 
         self.icon_edit = _EmojiLineEdit(icon)
         self.icon_edit.setObjectName("pinIconEdit")
-        self.icon_edit.setFixedWidth(44)
+        self.icon_edit.setFixedWidth(50)
         self.icon_edit.setMaxLength(4)
         self.icon_edit.setAlignment(Qt.AlignCenter)
-        self.icon_edit.setToolTip("Cliquer pour ouvrir la galerie d'émojis")
+        self.icon_edit.setToolTip("Cliquer pour choisir un émoji (vide : icône de dossier)")
         bottom_row.addWidget(self.icon_edit)
 
         self.name_edit = QLineEdit(name)
@@ -112,12 +102,7 @@ class PinEditOverlay(ModalOverlay):
         self.name_edit.returnPressed.connect(self._on_confirm)
         bottom_row.addWidget(self.name_edit, stretch=1)
 
-        change_path_btn = QPushButton("⋯")
-        change_path_btn.setObjectName("iconButton")
-        change_path_btn.setFixedSize(30, 30)
-        change_path_btn.setCursor(Qt.PointingHandCursor)
-        change_path_btn.setToolTip("Changer le dossier lié à ce raccourci")
-        change_path_btn.clicked.connect(self._on_change_path)
+        change_path_btn: QPushButton = icon_button("more", "Changer le dossier lié à ce raccourci", self._on_change_path, size=34)
         bottom_row.addWidget(change_path_btn)
 
         layout.addLayout(bottom_row)
@@ -142,6 +127,6 @@ class PinEditOverlay(ModalOverlay):
 
     def _on_confirm(self):
         name = self.name_edit.text().strip() or self.name_edit.placeholderText()
-        icon = self.icon_edit.text().strip() or "📁"
+        icon = self.icon_edit.text().strip()  # vide = icône de dossier au trait
         self.saved.emit(name, icon, self.current_path)
         self.close_overlay()

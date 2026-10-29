@@ -10,16 +10,16 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QProgressBar,
-    QPushButton,
     QTextEdit,
     QVBoxLayout,
 )
 
-from . import theme
+from . import icons, theme
 from .__version__ import VERSION
 from .glass_background import GlassBackground
 from .resources import ICON_PATH
 from .updater import DownloadWorker, UpdateInfo, launch_self_update
+from .widgets import button, panel_header
 
 
 class UpdateDialog(QDialog):
@@ -32,10 +32,11 @@ class UpdateDialog(QDialog):
         self.setModal(True)
         self._worker: DownloadWorker | None = None
 
-        # same frosted-gradient backdrop as the main window
+        # same flat backdrop as the main window
         palette = getattr(parent, "palette", None)
         if not isinstance(palette, dict):
             palette = theme.get_palette(theme.detect_windows_theme())
+            icons.set_palette(palette)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         background = GlassBackground()
@@ -43,27 +44,10 @@ class UpdateDialog(QDialog):
         outer.addWidget(background)
 
         root = QVBoxLayout(background)
-        root.setContentsMargins(26, 24, 26, 22)
+        root.setContentsMargins(24, 22, 24, 20)
         root.setSpacing(14)
 
-        header = QHBoxLayout()
-        header.setSpacing(14)
-        icon_label = QLabel("🚀")
-        icon_label.setStyleSheet("font-size: 34px;")
-        header.addWidget(icon_label)
-
-        title_box = QVBoxLayout()
-        title_box.setSpacing(2)
-        title = QLabel("Nouvelle version disponible")
-        title.setStyleSheet("font-size: 17px; font-weight: 700;")
-        subtitle = QLabel(f"v{VERSION} → v{info.version}")
-        subtitle.setObjectName("mutedText")
-        subtitle.setStyleSheet("font-size: 13px;")
-        title_box.addWidget(title)
-        title_box.addWidget(subtitle)
-        header.addLayout(title_box)
-        header.addStretch()
-        root.addLayout(header)
+        root.addLayout(panel_header("Nouvelle version disponible", f"v{VERSION} → v{info.version}", "download"))
 
         if info.notes.strip():
             notes = QTextEdit()
@@ -84,14 +68,10 @@ class UpdateDialog(QDialog):
 
         button_row = QHBoxLayout()
         button_row.addStretch()
-        self.later_button = QPushButton("Plus tard")
-        self.later_button.setObjectName("pathButton")
-        self.later_button.clicked.connect(self.reject)
+        self.later_button = button("Plus tard", on_click=self.reject)
         button_row.addWidget(self.later_button)
 
-        self.install_button = QPushButton("⬇️  Installer maintenant")
-        self.install_button.setObjectName("updateButton")
-        self.install_button.clicked.connect(self.start_download)
+        self.install_button = button("Installer maintenant", "download", "primary", self.start_download)
         button_row.addWidget(self.install_button)
         root.addLayout(button_row)
 

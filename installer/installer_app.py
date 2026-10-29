@@ -1,4 +1,4 @@
-"""Glassmorphism installer for Rec Size Helper.
+"""Installer for Rec Size Helper, in the app's flat style.
 
 A small bootstrapper: it doesn't carry the app inside itself, it downloads
 the latest RecSizeHelper-portable.exe from the GitHub release at install
@@ -33,15 +33,15 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QProgressBar,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from rechelper import theme, update_config
+from rechelper import icons, theme, update_config
 from rechelper.glass_background import GlassBackground
 from rechelper.resources import resource_path
 from rechelper.style import build_stylesheet
+from rechelper.widgets import button
 
 APP_NAME = "Rec Size Helper"
 EXE_NAME = "RecSizeHelper.exe"
@@ -185,6 +185,7 @@ class InstallerWindow(QWidget):
         self._installed = False
 
         self.palette_dict = theme.get_palette(theme.detect_windows_theme())
+        icons.set_palette(self.palette_dict)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -199,8 +200,9 @@ class InstallerWindow(QWidget):
         header = QHBoxLayout()
         header.setSpacing(18)
         logo = QLabel()
-        pixmap = QPixmap(resource_path("assets/icon.png"))
-        logo.setPixmap(pixmap.scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        pixmap = QPixmap(resource_path("assets/icon.png")).scaled(128, 128, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        pixmap.setDevicePixelRatio(2.0)
+        logo.setPixmap(pixmap)
         header.addWidget(logo)
 
         title_box = QVBoxLayout()
@@ -222,18 +224,14 @@ class InstallerWindow(QWidget):
         card_layout.setSpacing(16)
 
         path_label = QLabel("Dossier d'installation")
-        path_label.setStyleSheet("font-weight: 700; font-size: 14px;")
+        path_label.setObjectName("rowTitle")
         card_layout.addWidget(path_label)
 
         path_row = QHBoxLayout()
         path_row.setSpacing(10)
         self.path_edit = QLineEdit(str(default_install_dir()))
         path_row.addWidget(self.path_edit, stretch=1)
-        browse = QPushButton("Parcourir…")
-        browse.setObjectName("pathButton")
-        browse.setCursor(Qt.PointingHandCursor)
-        browse.clicked.connect(self.pick_folder)
-        path_row.addWidget(browse)
+        path_row.addWidget(button("Parcourir…", "folder", on_click=self.pick_folder))
         card_layout.addLayout(path_row)
 
         card_layout.addSpacing(6)
@@ -251,9 +249,15 @@ class InstallerWindow(QWidget):
         root.addWidget(card)
         root.addStretch()
 
+        status_row = QHBoxLayout()
+        status_row.setSpacing(8)
+        self.status_icon = QLabel()
+        self.status_icon.setVisible(False)
+        status_row.addWidget(self.status_icon)
         self.status_label = QLabel("Prêt à installer (connexion internet requise).")
         self.status_label.setObjectName("mutedText")
-        root.addWidget(self.status_label)
+        status_row.addWidget(self.status_label, stretch=1)
+        root.addLayout(status_row)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
@@ -262,16 +266,10 @@ class InstallerWindow(QWidget):
 
         buttons = QHBoxLayout()
         buttons.addStretch()
-        self.cancel_button = QPushButton("Annuler")
-        self.cancel_button.setObjectName("pathButton")
-        self.cancel_button.setCursor(Qt.PointingHandCursor)
-        self.cancel_button.clicked.connect(self.close)
+        self.cancel_button = button("Annuler", on_click=self.close)
         buttons.addWidget(self.cancel_button)
 
-        self.install_button = QPushButton("⬇️  Installer")
-        self.install_button.setObjectName("updateButton")
-        self.install_button.setCursor(Qt.PointingHandCursor)
-        self.install_button.clicked.connect(self.on_main_button)
+        self.install_button = button("Installer", "download", "primary", self.on_main_button)
         buttons.addWidget(self.install_button)
         root.addLayout(buttons)
 
@@ -301,6 +299,11 @@ class InstallerWindow(QWidget):
         self.install_button.setEnabled(False)
         self.cancel_button.setEnabled(False)
         self.path_edit.setEnabled(False)
+        # nouvel essai après un échec : on repart d'un message neutre
+        self.status_icon.setVisible(False)
+        self.status_label.setObjectName("mutedText")
+        self.status_label.style().unpolish(self.status_label)
+        self.status_label.style().polish(self.status_label)
         self.desktop_check.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)
@@ -320,16 +323,26 @@ class InstallerWindow(QWidget):
             mb_total = total / (1024 * 1024)
             self.status_label.setText(f"Téléchargement… {mb_done:.0f} / {mb_total:.0f} Mo")
 
+    def _show_status(self, text: str, ok: bool):
+        """Icône d'état au trait (coche ou croix) devant le message, dans la couleur qui va avec."""
+        self.status_icon.setPixmap(icons.pixmap("check" if ok else "error", "success" if ok else "warn", 16))
+        self.status_icon.setVisible(True)
+        self.status_label.setObjectName("statusOk" if ok else "statusError")
+        self.status_label.style().unpolish(self.status_label)
+        self.status_label.style().polish(self.status_label)
+        self.status_label.setText(text)
+
     def on_done(self, version: str):
         self._installed = True
         self.progress_bar.setRange(0, 1)
         self.progress_bar.setValue(1)
-        self.status_label.setText(f"✅  Installation terminée ! (version {version})")
+        self._show_status(f"Installation terminée ! (version {version})", ok=True)
         self.install_button.setText("Terminer")
+        self.install_button.setIcon(icons.icon("check", "white", 16))
         self.install_button.setEnabled(True)
 
     def on_failed(self, message: str):
-        self.status_label.setText(f"❌  Échec de l'installation : {message}")
+        self._show_status(f"Échec de l'installation : {message}", ok=False)
         self.progress_bar.setVisible(False)
         self.install_button.setEnabled(True)
         self.cancel_button.setEnabled(True)

@@ -1,19 +1,20 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEasingCurve, QRectF, QVariantAnimation
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath
+from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import QWidget
 
 from .theme import DARK, qcolor
 
 
 class StorageBar(QWidget):
-    """A liquid-glass segmented storage pill. Segment sizes animate smoothly
-    toward their new values instead of snapping, so slider drags feel fluid."""
+    """Barre de stockage segmentée, en aplats nets séparés par un fin liseré de la couleur
+    du panneau — comme la jauge en deux tons de l'icône. Les segments glissent vers leur
+    nouvelle taille au lieu de sauter, pour que le curseur reste fluide."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(26)
+        self.setFixedHeight(22)
         self._colors: list[QColor] = []
         self._display: list[float] = []
         self._start_vals: list[float] = []
@@ -61,7 +62,7 @@ class StorageBar(QWidget):
         path = QPainterPath()
         path.addRoundedRect(rect, radius, radius)
         painter.setClipPath(path)
-        painter.fillRect(rect, qcolor(self._palette["storage_track_bg"]))
+        painter.fillRect(rect, qcolor(self._palette["free"]))
 
         x = 0.0
         boundaries: list[float] = []
@@ -69,26 +70,11 @@ class StorageBar(QWidget):
             w = rect.width() * (value / self._total_capacity)
             if w <= 0:
                 continue
-            seg_rect = QRectF(x, 0, w, rect.height())
-            gradient = QLinearGradient(seg_rect.topLeft(), seg_rect.bottomLeft())
-            top = QColor(color).lighter(115)
-            top.setAlpha(235)
-            bottom = QColor(color)
-            bottom.setAlpha(235)
-            gradient.setColorAt(0.0, top)
-            gradient.setColorAt(1.0, bottom)
-            painter.fillRect(seg_rect, gradient)
+            painter.fillRect(QRectF(x, 0, w, rect.height()), color)
             x += w
             boundaries.append(x)
 
-        # glossy top sheen across the whole pill — the "liquid glass" touch
-        gloss = QLinearGradient(0, 0, 0, rect.height() * 0.55)
-        gloss.setColorAt(0.0, QColor(255, 255, 255, 100))
-        gloss.setColorAt(1.0, QColor(255, 255, 255, 0))
-        painter.fillRect(QRectF(0, 0, rect.width(), rect.height() * 0.55), gloss)
-
-        painter.setClipping(False)
-        gap_color = qcolor(self._palette["storage_gap"])
+        gap_color = qcolor(self._palette["panel"])
         for bx in boundaries[:-1]:
             painter.fillRect(QRectF(bx - 1, 0, 2, rect.height()), gap_color)
 

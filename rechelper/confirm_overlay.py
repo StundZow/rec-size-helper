@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout
 
 from .overlay_base import ModalOverlay
+from .widgets import button, note, panel_header
 
 
 class ConfirmOverlay(ModalOverlay):
@@ -21,7 +21,7 @@ class ConfirmOverlay(ModalOverlay):
         on_confirm: Callable[[], None],
         confirm_text: str = "Confirmer",
         cancel_text: str = "Annuler",
-        icon: str = "⚠️",
+        icon: str = "trash",
         danger: bool = True,
     ):
         super().__init__(main_window)
@@ -29,45 +29,18 @@ class ConfirmOverlay(ModalOverlay):
 
         card = QFrame()
         card.setObjectName("modalCard")
-        card.setFixedWidth(460)
+        card.setFixedWidth(470)
         root = QVBoxLayout(card)
-        root.setContentsMargins(26, 24, 26, 22)
+        root.setContentsMargins(24, 22, 24, 20)
         root.setSpacing(16)
 
-        header = QHBoxLayout()
-        header.setSpacing(14)
-        icon_label = QLabel(icon)
-        icon_label.setStyleSheet("font-size: 32px;")
-        header.addWidget(icon_label)
-        title_label = QLabel(title)
-        title_label.setStyleSheet("font-size: 17px; font-weight: 700;")
-        title_label.setWordWrap(True)
-        header.addWidget(title_label, stretch=1)
-        root.addLayout(header)
-
-        msg_frame = QFrame()
-        msg_frame.setObjectName("card")
-        msg_layout = QVBoxLayout(msg_frame)
-        msg_layout.setContentsMargins(20, 16, 20, 16)
-        msg_label = QLabel(message)
-        msg_label.setTextFormat(Qt.RichText)
-        msg_label.setWordWrap(True)
-        msg_label.setObjectName("mutedText")
-        msg_layout.addWidget(msg_label)
-        root.addWidget(msg_frame)
+        root.addLayout(panel_header(title, None, icon, "f_pink" if danger else "f_violet"))
+        root.addWidget(note(message))
 
         button_row = QHBoxLayout()
         button_row.addStretch()
-        cancel_btn = QPushButton(cancel_text)
-        cancel_btn.setObjectName("pathButton")
-        cancel_btn.setCursor(Qt.PointingHandCursor)
-        cancel_btn.clicked.connect(self.close_overlay)
-        button_row.addWidget(cancel_btn)
-
-        confirm_btn = QPushButton(confirm_text)
-        confirm_btn.setObjectName("deleteButton" if danger else "updateButton")
-        confirm_btn.setCursor(Qt.PointingHandCursor)
-        confirm_btn.clicked.connect(self._confirm_and_close)
+        button_row.addWidget(button(cancel_text, on_click=self.close_overlay))
+        confirm_btn = button(confirm_text, icon, "destructive" if danger else "primary", self._confirm_and_close)
         button_row.addWidget(confirm_btn)
         root.addLayout(button_row)
 

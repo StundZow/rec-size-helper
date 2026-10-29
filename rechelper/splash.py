@@ -1,8 +1,8 @@
 """Écran de lancement animé.
 
 Tourne dans un PROCESSUS séparé, pas dans l'appli : le premier rendu de texte d'un
-processus Qt sous Windows coûte ~1,5 s (base de polices avec des centaines de familles,
-puis la police emoji), et ce coût gèle le thread principal — un verrou du moteur de polices
+processus Qt sous Windows coûte ~0,5 s (base de polices avec des centaines de familles), plus
+~1 s de police emoji quand un dossier épinglé en porte un, et ce coût gèle le thread principal — un verrou du moteur de polices
 bloque toute peinture, puis le GIL. Aucune animation ne peut donc tourner *dans* l'appli
 pendant qu'elle se charge. Un second processus, lui, n'a rien à attendre.
 
@@ -33,29 +33,25 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPixmap,
-    QRadialGradient,
 )
 from PySide6.QtWidgets import QApplication, QWidget
 
 from . import settings, theme
 from .resources import resource_path
 
-WIDTH, HEIGHT = 420, 290
-RADIUS = 24
-ICON_SIZE = 96
-BAR_WIDTH, BAR_HEIGHT = 250, 6
+# La fenêtre déborde de la carte pour laisser la place à son ombre ; la carte reste centrée
+# sur le centre de l'écran, là où la fenêtre principale s'ouvrira.
+CARD_W, CARD_H = 400, 270
+MARGIN = 26
+WIDTH, HEIGHT = CARD_W + 2 * MARGIN, CARD_H + 2 * MARGIN
+RADIUS = 16
+ICON_SIZE = 88
+BAR_WIDTH, BAR_HEIGHT = 240, 5
 FRAME_MS = 16
 PULSE_PERIOD = 1.8
 SHIMMER_PERIOD = 1.4
 FADE_MS = 450
 SAFETY_TIMEOUT_MS = 20000
-
-# même dégradé que la barre de progression et le bouton de mise à jour de l'appli
-_ACCENT_A = QColor("#6366f1")
-_ACCENT_B = QColor("#22d3ee")
-
-# mêmes ancrages d'angle que GlassBackground (rel_x, rel_y, rel_radius)
-_BLOB_ANCHORS = ((0.03, -0.05, 0.45), (0.97, 0.05, 0.40), (0.90, 1.00, 0.50), (0.06, 0.95, 0.38))
 
 
 def current_theme_name() -> str:
@@ -164,35 +160,24 @@ class SplashWindow(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
 
-        card = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        card = QRectF(MARGIN, MARGIN, CARD_W, CARD_H)
+
+        # Ombre douce en couches concentriques, comme les panneaux de l'appli.
+        painter.setPen(Qt.NoPen)
+        shadow_rgb = p.get("shadow", (20, 16, 32))
+        for i in range(12):
+            grow = 20 * (1 - i / 12)
+            alpha = round(60 * ((i + 1) / 12) ** 2 / 12 * 2.4)
+            shadow = QPainterPath()
+            shadow.addRoundedRect(card.adjusted(-grow, -grow + 8, grow, grow + 8), RADIUS + grow, RADIUS + grow)
+            painter.setBrush(QColor(*shadow_rgb, alpha))
+            painter.drawPath(shadow)
+
+        # Carte unie à fine bordure : l'aplat net du reste de l'appli.
         path = QPainterPath()
         path.addRoundedRect(card, RADIUS, RADIUS)
-
-        base = QLinearGradient(card.topLeft(), card.bottomRight())
-        base.setColorAt(0.0, QColor(p["bg_base"]))
-        base.setColorAt(1.0, QColor(p["bg_base2"]))
-        painter.fillPath(path, base)
-
-        # Taches de couleur dans les angles, comme le fond de l'appli, qui dérivent
-        # lentement — restreintes à la carte.
-        painter.save()
-        painter.setClipPath(path)
-        span = max(card.width(), card.height())
-        for index, ((ax, ay, ar), color_hex) in enumerate(zip(_BLOB_ANCHORS, p["blob_colors"])):
-            phase = index * 2.1
-            cx = card.width() * ax + 18 * math.sin(t * 0.55 + phase)
-            cy = card.height() * ay + 14 * math.cos(t * 0.45 + phase)
-            gradient = QRadialGradient(QPointF(cx, cy), span * ar)
-            color = QColor(color_hex)
-            color.setAlpha(min(int(p["blob_alpha"] * 1.25), 255))
-            edge = QColor(color_hex)
-            edge.setAlpha(0)
-            gradient.setColorAt(0.0, color)
-            gradient.setColorAt(1.0, edge)
-            painter.fillRect(card, gradient)
-        painter.restore()
-
-        painter.setPen(theme.qcolor(p["card_border"]))
+        painter.fillPath(path, QColor(p["panel"]))
+        painter.setPen(QColor(p["line"]))
         painter.setBrush(Qt.NoBrush)
         painter.drawPath(path)
 
@@ -201,7 +186,7 @@ class SplashWindow(QWidget):
         painter.save()
         painter.setOpacity(0.72 + 0.28 * pulse)
         scale = 0.985 + 0.03 * pulse
-        icon_center = QPointF(WIDTH / 2, 92)
+        icon_center = QPointF(WIDTH / 2, MARGIN + 82)
         painter.translate(icon_center)
         painter.scale(scale, scale)
         painter.translate(-icon_center)
@@ -217,24 +202,24 @@ class SplashWindow(QWidget):
             painter.save()
             painter.setOpacity(0.86 + 0.14 * pulse)
             painter.drawPixmap(
-                QRectF(WIDTH / 2 - logical_w / 2, 152, logical_w, logical_h),
+                QRectF(WIDTH / 2 - logical_w / 2, MARGIN + 140, logical_w, logical_h),
                 self._wordmark,
                 QRectF(self._wordmark.rect()),
             )
             painter.restore()
 
-        # Barre de progression : rainure, remplissage dégradé, reflet qui balaye.
-        bar = QRectF(WIDTH / 2 - BAR_WIDTH / 2, 226, BAR_WIDTH, BAR_HEIGHT)
+        # Barre de progression : rail gris, remplissage au dégradé du logo, reflet qui balaye.
+        bar = QRectF(WIDTH / 2 - BAR_WIDTH / 2, MARGIN + 216, BAR_WIDTH, BAR_HEIGHT)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(theme.qcolor(p["groove_bg"]))
+        painter.setBrush(QColor(p["soft2"]))
         painter.drawRoundedRect(bar, BAR_HEIGHT / 2, BAR_HEIGHT / 2)
 
         fill_w = bar.width() * self._shown / 100
         if fill_w > BAR_HEIGHT:
             fill = QRectF(bar.left(), bar.top(), fill_w, bar.height())
             gradient = QLinearGradient(fill.topLeft(), fill.topRight())
-            gradient.setColorAt(0.0, _ACCENT_A)
-            gradient.setColorAt(1.0, _ACCENT_B)
+            gradient.setColorAt(0.0, QColor(theme.LOGO_PINK))
+            gradient.setColorAt(1.0, QColor(theme.LOGO_VIOLET))
             painter.setBrush(gradient)
             painter.drawRoundedRect(fill, BAR_HEIGHT / 2, BAR_HEIGHT / 2)
 
@@ -247,7 +232,7 @@ class SplashWindow(QWidget):
             band_x = bar.left() - band_w + (bar.width() + 2 * band_w) * sweep
             band = QLinearGradient(QPointF(band_x, 0), QPointF(band_x + band_w, 0))
             band.setColorAt(0.0, QColor(255, 255, 255, 0))
-            band.setColorAt(0.5, QColor(255, 255, 255, 90))
+            band.setColorAt(0.5, QColor(255, 255, 255, 80))
             band.setColorAt(1.0, QColor(255, 255, 255, 0))
             painter.fillRect(fill, band)
             painter.restore()

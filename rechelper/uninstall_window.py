@@ -1,4 +1,4 @@
-"""Glassmorphism uninstall flow for Rec Size Helper.
+"""Uninstall flow for Rec Size Helper, in the app's flat style.
 
 Runs inside the *same* exe as the app itself (invoked as
 `RecSizeHelper.exe --uninstall`) so the installer only has to embed one
@@ -17,20 +17,13 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtWidgets import (
-    QApplication,
-    QFrame,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from . import theme
+from . import icons, theme
 from .glass_background import GlassBackground
 from .resources import resource_path
 from .style import build_stylesheet
+from .widgets import button, note
 
 APP_NAME = "Rec Size Helper"
 EXE_NAME = "RecSizeHelper.exe"
@@ -109,6 +102,7 @@ class UninstallWindow(QWidget):
         self.setWindowIcon(QIcon(resource_path("assets/icon.ico")))
         self.setFixedSize(520, 300)
         palette = theme.get_palette(theme.detect_windows_theme())
+        icons.set_palette(palette)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -123,42 +117,26 @@ class UninstallWindow(QWidget):
         header = QHBoxLayout()
         header.setSpacing(16)
         logo = QLabel()
-        pixmap = QPixmap(resource_path("assets/icon.png"))
-        logo.setPixmap(pixmap.scaled(52, 52, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        pixmap = QPixmap(resource_path("assets/icon.png")).scaled(104, 104, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        pixmap.setDevicePixelRatio(2.0)
+        logo.setPixmap(pixmap)
         header.addWidget(logo)
         title = QLabel(f"Désinstaller {APP_NAME} ?")
-        title.setStyleSheet("font-size: 19px; font-weight: 700;")
+        title.setObjectName("panelTitle")
         header.addWidget(title)
         header.addStretch()
         root.addLayout(header)
 
-        card = QFrame()
-        card.setObjectName("card")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(22, 18, 22, 18)
-        info = QLabel(
-            "L'application et ses raccourcis seront supprimés.\n"
+        root.addWidget(note(
+            "L'application et ses raccourcis seront supprimés.<br>"
             "Vos enregistrements vidéo ne seront évidemment pas touchés."
-        )
-        info.setObjectName("mutedText")
-        info.setWordWrap(True)
-        card_layout.addWidget(info)
-        root.addWidget(card)
+        ))
         root.addStretch()
 
         buttons = QHBoxLayout()
         buttons.addStretch()
-        cancel = QPushButton("Annuler")
-        cancel.setObjectName("pathButton")
-        cancel.setCursor(Qt.PointingHandCursor)
-        cancel.clicked.connect(self.close)
-        buttons.addWidget(cancel)
-
-        confirm = QPushButton("🗑️  Désinstaller")
-        confirm.setObjectName("deleteButton")
-        confirm.setCursor(Qt.PointingHandCursor)
-        confirm.clicked.connect(self.on_confirm)
-        buttons.addWidget(confirm)
+        buttons.addWidget(button("Annuler", on_click=self.close))
+        buttons.addWidget(button("Désinstaller", "trash", "primary", self.on_confirm))
         root.addLayout(buttons)
 
     def on_confirm(self):

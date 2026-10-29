@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, Signal
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -23,24 +23,23 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import settings, theme
+from . import icons, settings, theme
 from .confirm_overlay import ConfirmOverlay
 from .glass_background import GlassBackground
 from .overlay_base import ModalOverlay
 from .models import Recording
-from .resources import ICON_PATH
+from .resources import ICON_PATH, resource_path
 from .storage_bar import StorageBar
 from .style import build_stylesheet
 from .timeline_widget import TimelineWidget
+from .widgets import chip_label, icon_button
 
 # Pas d'import en tête pour ce qui ne sert pas à AFFICHER la fenêtre : l'updater tire
 # toute la pile réseau (urllib → http.client → email, ~230 ms), le scanner tire
 # subprocess/concurrent.futures. Ils s'importent au moment de servir (voir plus bas).
 
-MKV_COLOR = "#ef4444"
-MP4_COLOR = "#3b82f6"
-OTHER_COLOR = "#8b5cf6"
-FREE_COLOR = "#9aa3b5"
+# segments de la barre de stockage / légende, dans l'ordre d'affichage : clé de palette
+_SEGMENTS = (("other", "Autres fichiers"), ("mkv", "MKV"), ("mp4", "MP4"), ("free", "Libre"))
 
 
 def format_size(num_bytes: float) -> str:
@@ -51,10 +50,27 @@ def format_size(num_bytes: float) -> str:
     return f"{mb:.0f} Mo"
 
 
-def _legend_dot(color: str, text: str) -> QLabel:
-    label = QLabel(f"●  {text}")
-    label.setStyleSheet(f"color: {color}; font-size: 12px; font-weight: 600;")
-    return label
+def _legend_item(text: str) -> tuple[QHBoxLayout, QLabel]:
+    """Pastille de couleur (un carré arrondi, pas un caractère ●) + libellé discret. La
+    pastille est recolorée à chaque changement de thème."""
+    row = QHBoxLayout()
+    row.setSpacing(7)
+    dot = QLabel()
+    dot.setFixedSize(10, 10)
+    row.addWidget(dot)
+    label = QLabel(text)
+    label.setObjectName("legendText")
+    row.addWidget(label)
+    return row, dot
+
+
+def _logo_pixmap(size: int) -> QPixmap:
+    """L'icône de l'appli rendue en 2x, pour rester nette sur les écrans à haute densité."""
+    pix = QPixmap(resource_path("assets/icon.png")).scaled(
+        size * 2, size * 2, Qt.KeepAspectRatio, Qt.SmoothTransformation
+    )
+    pix.setDevicePixelRatio(2.0)
+    return pix
 
 
 class PinnedSegment(QWidget):
@@ -85,33 +101,38 @@ class PinnedSegment(QWidget):
         layout.setSpacing(0)
 
         name = pin.get("name") or Path(self.path).name or self.path
-        icon = pin.get("icon") or "📁"
-        self.name_button = QPushButton(f"{icon}  {name}")
+        emoji = pin.get("icon") or ""
+        # l'emoji choisi par l'utilisateur est gardé tel quel ; sans emoji, l'icône de
+        # dossier au trait (en accent sur le dossier ouvert)
+        self.name_button = QPushButton(f"{emoji}  {name}" if emoji else name)
+        if not emoji:
+            icons.bind(self.name_button, "folder", "accent" if is_active else "muted", 15)
         self.name_button.setObjectName("segmentItem")
         self.name_button.setToolTip(self.path)
         self.name_button.setCursor(Qt.PointingHandCursor)
         self.name_button.clicked.connect(lambda: self.clicked.emit(self.path))
         layout.addWidget(self.name_button)
 
-        self._gear = QPushButton("⚙")
+        self._gear = QPushButton()
+        icons.bind(self._gear, "settings", "dim", 13)
         self._gear.setObjectName("segMini")
-        self._gear.setFixedSize(16, 22)
+        self._gear.setFixedSize(22, 22)
         self._gear.setCursor(Qt.PointingHandCursor)
         self._gear.setToolTip("Modifier ce raccourci")
         self._gear.clicked.connect(self._open_edit_popup)
         layout.addWidget(self._gear)
 
-        self._remove = QPushButton("✕")
+        self._remove = QPushButton()
+        icons.bind(self._remove, "x", "dim", 12)
         self._remove.setObjectName("segMini")
-        self._remove.setFixedSize(16, 22)
+        self._remove.setFixedSize(22, 22)
         self._remove.setToolTip("Retirer ce dossier des épingles")
         self._remove.setCursor(Qt.PointingHandCursor)
         self._remove.clicked.connect(lambda: self.unpinned.emit(self.path))
         layout.addWidget(self._remove)
 
-        # An opacity effect (not a "color: transparent" stylesheet) hides
-        # these — colour emoji glyphs like the gear ignore text-colour QSS,
-        # since they're drawn as pre-rendered bitmaps, not text.
+        # An opacity effect hides these (icons are pixmaps: a "color:
+        # transparent" stylesheet wouldn't touch them).
         self._minis = (self._gear, self._remove)
         self._mini_effects = []
         for b in self._minis:
@@ -127,7 +148,7 @@ class PinnedSegment(QWidget):
             self.window(),
             name=self.pin.get("name") or Path(self.path).name or self.path,
             path=self.path,
-            icon=self.pin.get("icon") or "📁",
+            icon=self.pin.get("icon") or "",
             is_first=self._is_first,
             is_last=self._is_last,
         )
@@ -171,6 +192,8 @@ class MainWindow(QMainWindow):
         self.app_settings = settings.load_settings()
         self.theme_name = self.app_settings.get("theme") or theme.detect_windows_theme()
         self.palette = theme.get_palette(self.theme_name)
+        icons.set_palette(self.palette)  # avant de construire : les icônes naissent aux bonnes couleurs
+        self._legend_dots: list[tuple[QLabel, str]] = []
         self._shown_once = False
         self._fade_anim: QPropertyAnimation | None = None
 
@@ -225,9 +248,14 @@ class MainWindow(QMainWindow):
         root.setSpacing(16)
 
         header = QHBoxLayout()
+        header.setSpacing(14)
+        logo = QLabel()
+        logo.setPixmap(_logo_pixmap(42))
+        logo.setFixedSize(42, 42)
+        header.addWidget(logo)
         title_box = QVBoxLayout()
-        title_box.setSpacing(2)
-        title = QLabel("🎬  Rec Size Helper")
+        title_box.setSpacing(1)
+        title = QLabel("Rec Size Helper")
         title.setObjectName("title")
         subtitle = QLabel("Visualisez et nettoyez vos enregistrements MKV / MP4 en toute sécurité")
         subtitle.setObjectName("subtitle")
@@ -236,19 +264,14 @@ class MainWindow(QMainWindow):
         header.addLayout(title_box)
         header.addStretch()
 
-        self.settings_button = QPushButton("⚙")
-        self.settings_button.setObjectName("iconButton")
-        self.settings_button.setFixedSize(34, 34)
-        self.settings_button.setCursor(Qt.PointingHandCursor)
-        self.settings_button.setToolTip("Paramètres")
-        self.settings_button.clicked.connect(self.open_settings)
+        self.settings_button = icon_button("settings", "Paramètres", self.open_settings, size=36, bind=True)
         header.addWidget(self.settings_button)
         root.addLayout(header)
 
         # segmented pill: "Parcourir…" + one segment per pinned folder
         self.pinned_scroll = QScrollArea()
         self.pinned_scroll.setWidgetResizable(True)
-        self.pinned_scroll.setFixedHeight(52)
+        self.pinned_scroll.setFixedHeight(54)
         self.pinned_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.pinned_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.pinned_scroll.setFrameShape(QFrame.NoFrame)
@@ -262,11 +285,10 @@ class MainWindow(QMainWindow):
         self.segment_pill = QFrame()
         self.segment_pill.setObjectName("segmentPill")
         self.pinned_layout = QHBoxLayout(self.segment_pill)
-        # right margin is wide on purpose: the pill's border-radius (19px)
-        # eats into the last few pixels near the edge, so a small icon
-        # button parked right at a 5px margin renders outside the rounded
-        # silhouette — this keeps the last mini-button clear of that curve
-        self.pinned_layout.setContentsMargins(8, 3, 18, 3)
+        # the rail's corner radius (12px) eats into the last pixels near its
+        # edge: a little extra room on the right keeps the last mini-button
+        # (the ✕) inside the rounded silhouette
+        self.pinned_layout.setContentsMargins(4, 4, 8, 4)
         self.pinned_layout.setSpacing(2)
 
         pill_row.addWidget(self.segment_pill)
@@ -279,7 +301,8 @@ class MainWindow(QMainWindow):
         self.folder_label.setObjectName("mutedText")
         folder_row.addWidget(self.folder_label, stretch=1)
 
-        self.pin_button = QPushButton("📌  Épingler")
+        self.pin_button = QPushButton("Épingler")
+        icons.bind(self.pin_button, "pin", "muted", 15, checked_role="accent")
         self.pin_button.setObjectName("pinToggle")
         self.pin_button.setCheckable(True)
         self.pin_button.setEnabled(False)
@@ -299,10 +322,12 @@ class MainWindow(QMainWindow):
         storage_layout.setSpacing(10)
 
         storage_header = QHBoxLayout()
+        storage_header.setSpacing(11)
+        storage_header.addWidget(icons.make_chip("drive", "f_violet", size=34, icon_size=18, radius=9))
         storage_title_box = QVBoxLayout()
-        storage_title_box.setSpacing(2)
-        storage_title = QLabel("💾  Stockage du disque")
-        storage_title.setStyleSheet("font-size: 15px; font-weight: 700;")
+        storage_title_box.setSpacing(1)
+        storage_title = QLabel("Stockage du disque")
+        storage_title.setObjectName("sectionTitle")
         self.storage_subtitle = QLabel("Sélectionnez un dossier")
         self.storage_subtitle.setObjectName("mutedText")
         self.storage_subtitle.setStyleSheet("font-size: 12px;")
@@ -311,7 +336,7 @@ class MainWindow(QMainWindow):
         storage_header.addLayout(storage_title_box)
         storage_header.addStretch()
         self.storage_free_label = QLabel("—")
-        self.storage_free_label.setStyleSheet("font-size: 14px; font-weight: 700;")
+        self.storage_free_label.setObjectName("freeFigure")
         storage_header.addWidget(self.storage_free_label)
         storage_layout.addLayout(storage_header)
 
@@ -319,11 +344,11 @@ class MainWindow(QMainWindow):
         storage_layout.addWidget(self.storage_bar)
 
         storage_legend = QHBoxLayout()
-        storage_legend.setSpacing(18)
-        storage_legend.addWidget(_legend_dot(OTHER_COLOR, "Autres fichiers"))
-        storage_legend.addWidget(_legend_dot(MKV_COLOR, "MKV"))
-        storage_legend.addWidget(_legend_dot(MP4_COLOR, "MP4"))
-        storage_legend.addWidget(_legend_dot(FREE_COLOR, "Libre"))
+        storage_legend.setSpacing(20)
+        for key, text in _SEGMENTS:
+            item, dot = _legend_item(text)
+            storage_legend.addLayout(item)
+            self._legend_dots.append((dot, key))
         storage_legend.addStretch()
         storage_layout.addLayout(storage_legend)
 
@@ -345,20 +370,20 @@ class MainWindow(QMainWindow):
         sl_layout.setContentsMargins(20, 18, 20, 18)
         sl_layout.setSpacing(6)
 
-        self.delete_label = QLabel("Sélectionnez d'abord un dossier")
-        self.delete_label.setStyleSheet("font-weight: 700; font-size: 16px;")
+        delete_row, self.delete_label = chip_label("trash", "f_violet", "Sélectionnez d'abord un dossier", "sectionTitle")
         self.delete_slider = QSlider(Qt.Horizontal)
         self.delete_slider.setObjectName("deleteSlider")
         self.delete_slider.setRange(0, 1000)
         self.delete_slider.setValue(0)
         self.delete_slider.valueChanged.connect(self.on_delete_slider_changed)
-        sl_layout.addWidget(self.delete_label)
+        sl_layout.addLayout(delete_row)
+        sl_layout.addSpacing(2)
         sl_layout.addWidget(self.delete_slider)
-        sl_layout.addSpacing(10)
+        sl_layout.addSpacing(12)
 
-        self.buffer_label = QLabel("Marge MKV")
-        self.buffer_label.setStyleSheet("font-weight: 700; font-size: 16px;")
-        sl_layout.addWidget(self.buffer_label)
+        buffer_row, self.buffer_label = chip_label("shield_check", "f_pink", "Marge MKV", "sectionTitle")
+        sl_layout.addLayout(buffer_row)
+        sl_layout.addSpacing(2)
 
         mkv_slider_row = QHBoxLayout()
         mkv_slider_row.setSpacing(10)
@@ -370,10 +395,11 @@ class MainWindow(QMainWindow):
         mkv_slider_row.addWidget(self.mkv_slider, stretch=1)
 
         default_lock = bool(self.app_settings.get("auto_lock_mkv", True))
-        self.lock_button = QPushButton("🔒" if default_lock else "🔓")
+        self.lock_button = QPushButton()
+        icons.bind(self.lock_button, "unlock", "muted", 16, checked_role="accent", checked_name="lock")
         self.lock_button.setObjectName("lockToggle")
         self.lock_button.setCheckable(True)
-        self.lock_button.setFixedSize(30, 30)
+        self.lock_button.setFixedSize(32, 32)
         self.lock_button.setCursor(Qt.PointingHandCursor)
         self.lock_button.setToolTip("Verrouiller l'écart entre les deux curseurs")
         self.lock_button.toggled.connect(self.toggle_lock)
@@ -387,7 +413,9 @@ class MainWindow(QMainWindow):
         action_row.addStretch()
 
         self.delete_button = QPushButton("Supprimer définitivement")
+        icons.bind(self.delete_button, "trash", "white", 16)
         self.delete_button.setObjectName("deleteButton")
+        self.delete_button.setCursor(Qt.PointingHandCursor)
         self.delete_button.setEnabled(False)
         self.delete_button.clicked.connect(self.do_delete)
         action_row.addWidget(self.delete_button)
@@ -406,7 +434,8 @@ class MainWindow(QMainWindow):
                 w.hide()
                 w.deleteLater()
 
-        self.browse_button = QPushButton("📁  Parcourir…")
+        self.browse_button = QPushButton("Parcourir…")
+        icons.bind(self.browse_button, "folder", "muted", 15)
         self.browse_button.setObjectName("segmentItem")
         self.browse_button.setProperty("active", "false")
         self.browse_button.setCursor(Qt.PointingHandCursor)
@@ -486,7 +515,7 @@ class MainWindow(QMainWindow):
     def update_pin_button_state(self):
         is_pinned = bool(self.folder) and self._pin_index(str(self.folder)) is not None
         self.pin_button.setChecked(is_pinned)
-        self.pin_button.setText("📌  Épinglé" if is_pinned else "📌  Épingler")
+        self.pin_button.setText("Épinglé" if is_pinned else "Épingler")
         self.pin_button.setEnabled(bool(self.folder))
         # rebuild the pill so the active-folder highlight follows along
         self.refresh_pinned_row()
@@ -585,15 +614,17 @@ class MainWindow(QMainWindow):
         freed = mkv_freed + mp4_freed
         free_projected = self._current_free_bytes + freed
 
+        p = self.palette
         self.storage_bar.set_data(
             [
-                (self._other_bytes, QColor(OTHER_COLOR)),
-                (mkv_remaining, QColor(MKV_COLOR)),
-                (mp4_remaining, QColor(MP4_COLOR)),
-                (free_projected, QColor(FREE_COLOR)),
+                (self._other_bytes, QColor(p["other"])),
+                (mkv_remaining, QColor(p["mkv"])),
+                (mp4_remaining, QColor(p["mp4"])),
+                (free_projected, QColor(p["free"])),
             ],
             self._disk_total_bytes,
         )
+        self._set_free_preview(freed > 0)
 
         if freed > 0:
             self.storage_subtitle.setText(
@@ -638,9 +669,9 @@ class MainWindow(QMainWindow):
         self.update_preview()
 
     def toggle_lock(self, checked: bool):
+        # l'icône (cadenas ouvert / fermé) suit l'état coché toute seule
         if checked:
             self._locked_gap = self.delete_slider.value() - self.mkv_slider.value()
-        self.lock_button.setText("🔒" if checked else "🔓")
 
     def compute_cutoffs(self):
         now = datetime.now()
@@ -661,8 +692,8 @@ class MainWindow(QMainWindow):
 
     def update_preview(self):
         if not self.recordings:
-            self.delete_label.setText("🗑️  Sélectionnez d'abord un dossier")
-            self.buffer_label.setText("🛡️  Marge MKV")
+            self.delete_label.setText("Sélectionnez d'abord un dossier")
+            self.buffer_label.setText("Marge MKV")
             self.delete_button.setText("Supprimer définitivement")
             self.delete_button.setEnabled(False)
             self.timeline.set_cutoffs(None, None)
@@ -673,9 +704,9 @@ class MainWindow(QMainWindow):
         self.timeline.set_cutoffs(mp4_cutoff, mkv_cutoff)
 
         self.delete_label.setText(
-            f"🗑️  {cutoff_days_mp4} jours (avant le {mp4_cutoff.strftime('%d/%m/%Y')})"
+            f"{cutoff_days_mp4} jours (avant le {mp4_cutoff.strftime('%d/%m/%Y')})"
         )
-        self.buffer_label.setText(f"🛡️  Marge MKV de {buffer_days} jours")
+        self.buffer_label.setText(f"Marge MKV de {buffer_days} jours")
 
         mp4_to_delete = [r.mp4 for r in self.recordings if r.mp4 and r.age_days >= cutoff_days_mp4]
         mkv_to_delete = [r.mkv for r in self.recordings if r.mkv and r.age_days >= cutoff_days_mkv]
@@ -713,14 +744,26 @@ class MainWindow(QMainWindow):
     def apply_theme(self, name: str):
         self.theme_name = name
         self.palette = theme.get_palette(name)
+        icons.set_palette(self.palette)
         app = QApplication.instance()
         if app:
             app.setStyleSheet(build_stylesheet(self.palette))
+        for dot, key in self._legend_dots:
+            dot.setStyleSheet(f"background-color: {self.palette[key]}; border-radius: 3px;")
         self.glass_background.set_theme(self.palette)
         self.timeline.set_theme(self.palette)
         self.storage_bar.set_theme(self.palette)
         if self.recordings or self.folder:
             self.update_preview()
+
+    def _set_free_preview(self, preview: bool):
+        """Le chiffre d'espace libre passe en accent quand il montre l'aperçu d'une
+        suppression, pour qu'on voie d'un coup d'œil que ce n'est pas l'état actuel."""
+        value = "true" if preview else "false"
+        if self.storage_free_label.property("preview") != value:
+            self.storage_free_label.setProperty("preview", value)
+            self.storage_free_label.style().unpolish(self.storage_free_label)
+            self.storage_free_label.style().polish(self.storage_free_label)
 
     # ------------------------------------------------------------ delete --
     def do_delete(self):
@@ -739,8 +782,8 @@ class MainWindow(QMainWindow):
             title="Confirmer la suppression définitive",
             message=msg,
             on_confirm=lambda: self._perform_delete(mp4_files, mkv_files, total_freed),
-            confirm_text="🗑️  Supprimer définitivement",
-            icon="🗑️",
+            confirm_text="Supprimer définitivement",
+            icon="trash",
         )
         overlay.open_over()
 

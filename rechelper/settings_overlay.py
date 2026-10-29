@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
 
 from . import settings
 from .overlay_base import ModalOverlay
 from .toggle_switch import ToggleSwitch
+from .widgets import button, panel_header
 
 
 class SettingsOverlay(ModalOverlay):
-    """An in-window settings panel — the rest of the app dims/blurs behind
-    it instead of opening a separate OS window."""
+    """An in-window settings panel — the rest of the app sits behind a flat veil
+    instead of opening a separate OS window."""
 
     def __init__(self, main_window):
         super().__init__(main_window)
@@ -18,21 +18,19 @@ class SettingsOverlay(ModalOverlay):
 
         card = QFrame()
         card.setObjectName("modalCard")
-        card.setFixedWidth(420)
+        card.setFixedWidth(440)
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(26, 24, 26, 22)
-        card_layout.setSpacing(20)
+        card_layout.setContentsMargins(24, 22, 24, 20)
+        card_layout.setSpacing(18)
 
-        title = QLabel("⚙️  Paramètres")
-        title.setStyleSheet("font-size: 18px; font-weight: 700;")
-        card_layout.addWidget(title)
+        card_layout.addLayout(panel_header("Paramètres", None, "settings", "f_neutral"))
 
-        self.theme_switch = ToggleSwitch()
+        self.theme_switch = ToggleSwitch("sun", "moon")
         card_layout.addLayout(self._setting_row("Basculer de thème", None, self.theme_switch))
         self.theme_switch.setChecked(main_window.palette.get("name") == "dark")
         self.theme_switch.toggled.connect(self.on_theme_toggled)
 
-        self.lock_switch = ToggleSwitch(icon_off="🔓", icon_on="🔒")
+        self.lock_switch = ToggleSwitch("unlock", "lock")
         card_layout.addLayout(self._setting_row(
             "Auto Lock MKV",
             "Verrouiller l'écart MKV/MP4 dès l'ouverture de l'application",
@@ -43,21 +41,18 @@ class SettingsOverlay(ModalOverlay):
 
         button_row = QHBoxLayout()
         button_row.addStretch()
-        close_button = QPushButton("Fermer")
-        close_button.setObjectName("pathButton")
-        close_button.setCursor(Qt.PointingHandCursor)
-        close_button.clicked.connect(self.close_overlay)
-        button_row.addWidget(close_button)
+        button_row.addWidget(button("Fermer", on_click=self.close_overlay))
         card_layout.addLayout(button_row)
 
         self.set_card(card)
 
     def _setting_row(self, title: str, subtitle: str | None, switch: ToggleSwitch) -> QHBoxLayout:
         row = QHBoxLayout()
+        row.setSpacing(16)
         label_box = QVBoxLayout()
         label_box.setSpacing(2)
         title_label = QLabel(title)
-        title_label.setStyleSheet("font-weight: 600; font-size: 14px;")
+        title_label.setObjectName("rowTitle")
         label_box.addWidget(title_label)
         if subtitle:
             sub_label = QLabel(subtitle)

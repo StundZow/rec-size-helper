@@ -3,12 +3,6 @@ import subprocess
 import sys
 import time
 
-# Emoji utilisés par l'interface : rendus une fois ici, avant la fenêtre, pour que le
-# chargement de la police emoji (~1 s) tombe sur une vraie étape de la barre de
-# progression au lieu de geler la première peinture de la fenêtre.
-_UI_EMOJI = "🎬📁📌⚙️🔒🔓☀🌙🗑️💾🛡️🚀✅❌⚠️✓✕◀▶"
-
-
 def _mark(label: str):
     """Diagnostic de démarrage, actif seulement si RSH_TIMING pointe vers un fichier :
     note le temps écoulé depuis la création du processus à chaque étape du lancement.
@@ -122,25 +116,32 @@ def main():
     app.setWindowIcon(QIcon(ICON_PATH))
 
     # Le premier rendu de texte d'un processus paie la base de polices Windows (~0,5 s
-    # avec des centaines de familles installées) puis la police emoji (~1 s) — un coût
-    # unique qui gèle le thread. Le déclencher ici, explicitement, permet à la barre du
-    # splash d'avancer sur ces vraies étapes au lieu de rester figée pendant 1,5 s.
+    # avec des centaines de familles installées) — un coût unique qui gèle le thread. Le
+    # déclencher ici, explicitement, fait avancer la barre du splash sur cette vraie étape.
     QFontDatabase.families()
     _mark("fonts_ready")
-    splash.progress(42)
-    QFontMetrics(QFont("Segoe UI", 13)).horizontalAdvance(_UI_EMOJI)
-    _mark("emoji_ready")
-    splash.progress(74)
+    splash.progress(50)
+
+    # L'interface n'affiche plus aucun emoji (icônes au trait) : seule la police emoji
+    # (~1 s) reste à charger quand un dossier épinglé en porte un. Dans ce cas seulement,
+    # on la charge ici, sur une vraie étape, plutôt qu'en plein premier affichage.
+    from rechelper import settings
+
+    pin_emoji = "".join(pin["icon"] for pin in settings.load_pinned_folders() if pin.get("icon"))
+    if pin_emoji:
+        QFontMetrics(QFont("Segoe UI", 13)).horizontalAdvance(pin_emoji)
+        _mark("emoji_ready")
+        splash.progress(70)
 
     from rechelper.main_window import MainWindow
 
     _mark("main_window_imported")
-    splash.progress(82)
+    splash.progress(78)
 
     window = MainWindow()
     _place_window(window, app.primaryScreen())
     _mark("window_built")
-    splash.progress(93)
+    splash.progress(92)
 
     window.show()
     app.processEvents()

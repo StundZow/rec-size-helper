@@ -9,12 +9,7 @@ from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath
 from PySide6.QtWidgets import QWidget
 
 from .models import Recording
-from .theme import DARK, qcolor
-
-MKV_STROKE = QColor("#ef4444")
-MP4_STROKE = QColor("#3b82f6")
-MKV_FILL_TOP = QColor(239, 68, 68, 72)
-MP4_FILL_TOP = QColor(59, 130, 246, 72)
+from .theme import DARK, qcolor, tinted
 
 MONTHS_FR = [
     "janv.", "févr.", "mars", "avr.", "mai", "juin",
@@ -284,39 +279,30 @@ class TimelineWidget(QWidget):
             painter.drawText(QRectF(-70, -4, 70, 16), Qt.AlignRight | Qt.AlignVCenter, label)
             painter.restore()
 
-        # ---- deletion zones: soft colour glow showing what's selected ----
-        # left of the red line = MKV + MP4 deleted (red glow); between red and
-        # blue = MP4 only (blue glow); right of blue = kept (no glow).
+        # ---- deletion zones: flat tinted bands showing what's selected ----
+        # left of the MKV cutoff = MKV + MP4 deleted (pink); between the two
+        # cutoffs = MP4 only (violet); right of both = kept (no tint).
+        mkv_color = qcolor(self._palette["mkv"])
+        mp4_color = qcolor(self._palette["mp4"])
+        zone_alpha = self._palette.get("zone_alpha", 28)
         if self._mkv_x_ts is not None and self._mp4_x_ts is not None:
             x_mkv = self._ts_to_x(self._mkv_x_ts, chart_rect.left(), chart_rect.width())
             x_mp4 = self._ts_to_x(self._mp4_x_ts, chart_rect.left(), chart_rect.width())
-            x_red = min(x_mkv, x_mp4)
-            x_blue = max(x_mkv, x_mp4)
-            painter.save()
-            painter.setClipRect(chart_rect)
-
-            def glow_zone(x_start: float, x_end: float, color: QColor):
-                if x_end <= x_start:
-                    return
-                base = QColor(color)
-                base.setAlpha(16)
-                painter.fillRect(QRectF(x_start, chart_rect.top(), x_end - x_start, chart_rect.height()), base)
-                band_w = min(80.0, x_end - x_start)
-                grad = QLinearGradient(x_end - band_w, 0, x_end, 0)
-                g0 = QColor(color)
-                g0.setAlpha(0)
-                g1 = QColor(color)
-                g1.setAlpha(46)
-                grad.setColorAt(0.0, g0)
-                grad.setColorAt(1.0, g1)
-                painter.fillRect(QRectF(x_end - band_w, chart_rect.top(), band_w, chart_rect.height()), grad)
-
-            glow_zone(chart_rect.left(), x_red, MKV_STROKE)
-            glow_zone(x_red, x_blue, MP4_STROKE)
-            painter.restore()
+            x_first = min(x_mkv, x_mp4)
+            x_second = max(x_mkv, x_mp4)
+            if x_first > chart_rect.left():
+                painter.fillRect(
+                    QRectF(chart_rect.left(), chart_rect.top(), x_first - chart_rect.left(), chart_rect.height()),
+                    tinted(self._palette["mkv"], zone_alpha),
+                )
+            if x_second > x_first:
+                painter.fillRect(
+                    QRectF(x_first, chart_rect.top(), x_second - x_first, chart_rect.height()),
+                    tinted(self._palette["mp4"], zone_alpha),
+                )
 
         # ---- the two smooth area curves ----
-        def draw_series(vals: list[float], stroke: QColor, fill_top: QColor):
+        def draw_series(vals: list[float], stroke: QColor):
             pts = [
                 QPointF(x, chart_rect.bottom() - chart_rect.height() * (v / axis_max_bytes) * self._reveal)
                 for x, v in zip(xs, vals)
@@ -341,9 +327,11 @@ class TimelineWidget(QWidget):
             # otherwise dips carry a grey wash that reads as a rendering bug
             peak_y = min(p.y() for p in pts)
             grad = QLinearGradient(0, peak_y, 0, chart_rect.bottom())
-            grad.setColorAt(0.0, fill_top)
-            end = QColor(fill_top)
-            end.setAlpha(0)
+            top = QColor(stroke)
+            top.setAlpha(46)
+            end = QColor(stroke)
+            end.setAlpha(4)
+            grad.setColorAt(0.0, top)
             grad.setColorAt(1.0, end)
             painter.fillPath(fill, grad)
 
@@ -355,37 +343,24 @@ class TimelineWidget(QWidget):
 
         painter.save()
         painter.setClipRect(chart_rect)
-        draw_series(self._mkv_vals, MKV_STROKE, MKV_FILL_TOP)
-        draw_series(self._mp4_vals, MP4_STROKE, MP4_FILL_TOP)
+        draw_series(self._mkv_vals, mkv_color)
+        draw_series(self._mp4_vals, mp4_color)
         painter.restore()
 
-        # ---- cutoff highlights: soft glow band + core line + dot on curve ----
-        def draw_highlight(ts: Optional[float], color: QColor, vals: list[float]):
+        # ---- cutoff lines: a crisp line + a dot ringed in the panel colour ----
+        def draw_cutoff(ts: Optional[float], color: QColor, vals: list[float]):
             if ts is None:
                 return
             x = self._ts_to_x(ts, chart_rect.left(), chart_rect.width())
-            band_w = 30.0
-            band = QLinearGradient(x - band_w / 2, 0, x + band_w / 2, 0)
-            edge = QColor(color)
-            edge.setAlpha(0)
-            mid = QColor(color)
-            mid.setAlpha(46)
-            band.setColorAt(0.0, edge)
-            band.setColorAt(0.5, mid)
-            band.setColorAt(1.0, edge)
-            painter.fillRect(QRectF(x - band_w / 2, chart_rect.top(), band_w, chart_rect.height()), band)
-
-            core = QColor(color)
-            core.setAlpha(215)
-            painter.setPen(QPen(core, 2, Qt.SolidLine, Qt.RoundCap))
+            painter.setPen(QPen(color, 2, Qt.SolidLine, Qt.FlatCap))
             painter.drawLine(QPointF(x, chart_rect.top()), QPointF(x, chart_rect.bottom()))
 
             y = self._curve_y_at(xs, vals, x, chart_rect.bottom(), chart_rect.height(), axis_max_bytes)
-            painter.setPen(QPen(QColor(255, 255, 255, 235), 2))
+            painter.setPen(QPen(qcolor(self._palette["panel"]), 2.5))
             painter.setBrush(color)
-            painter.drawEllipse(QPointF(x, y), 5, 5)
+            painter.drawEllipse(QPointF(x, y), 5.5, 5.5)
 
-        draw_highlight(self._mkv_x_ts, MKV_STROKE, self._mkv_vals)
-        draw_highlight(self._mp4_x_ts, MP4_STROKE, self._mp4_vals)
+        draw_cutoff(self._mkv_x_ts, mkv_color, self._mkv_vals)
+        draw_cutoff(self._mp4_x_ts, mp4_color, self._mp4_vals)
 
         painter.end()

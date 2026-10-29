@@ -10,7 +10,11 @@ SETTINGS_FILE = CONFIG_DIR / "settings.json"
 
 # theme: None means "follow Windows", otherwise "dark"/"light" (last explicit choice)
 DEFAULT_SETTINGS = {"theme": None, "auto_lock_mkv": True}
-DEFAULT_PIN_ICON = "📁"
+# Sans emoji choisi, un dossier épinglé porte l'icône de dossier au trait de l'interface.
+DEFAULT_PIN_ICON = ""
+# Ancienne valeur par défaut (et repli quand le champ émoji était vidé) : ce n'était pas un
+# choix de l'utilisateur, donc on la relit comme « pas d'émoji ».
+_LEGACY_DEFAULT_PIN_ICON = "📁"
 
 
 def load_pinned_folders() -> list[dict]:
@@ -27,10 +31,13 @@ def load_pinned_folders() -> list[dict]:
                 result.append({"path": item, "name": Path(item).name or item, "icon": DEFAULT_PIN_ICON})
             elif isinstance(item, dict) and item.get("path"):
                 path = str(item["path"])
+                icon = str(item.get("icon") or DEFAULT_PIN_ICON)
+                if icon == _LEGACY_DEFAULT_PIN_ICON:
+                    icon = DEFAULT_PIN_ICON
                 result.append({
                     "path": path,
                     "name": str(item.get("name") or Path(path).name or path),
-                    "icon": str(item.get("icon") or DEFAULT_PIN_ICON),
+                    "icon": icon,
                 })
         return result
     except Exception:
